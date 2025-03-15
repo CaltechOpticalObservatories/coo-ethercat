@@ -1,0 +1,43 @@
+[build-system]
+# Specifies the build system to use. 
+requires = ["setuptools>=42"]
+build-backend = "setuptools.build_meta"
+
+[project]
+# Basic information about your project.
+name = "cooethercat"
+version = "0.1.0" 
+dependencies = ["pysoem"]
+requires-python = ">=3.12"
+authors = [
+  {name = "Jake Zimmer", email = "your.email@example.com"},
+  {name = "Prakriti Gupta", email = "your.email@example.com"},
+  {name = "Jeb Bailey", email = "your.email@example.com"},
+]
+maintainers = [
+  {name = "Caltech Optical Observatories", email = "your.email@example.com"}
+]
+description = "A python ethercat library, presently principlally for the Maxon EPOS4"
+readme = "README.md" 
+license = { text = "CC-BY" }
+keywords = ["ethercat", "maxon", "EPOS4"]
+classifiers = [
+  "Programming Language :: Python"
+]
+
+[project.urls]
+# Various URLs related to your project. These links are displayed on PyPI.
+#Homepage = "https://example.com"
+#Documentation = "https://readthedocs.org"
+Repository = "https://github.com/CaltechOpticalObservatories/coo-ethercat"
+#"Bug Tracker" = "https://github.com/yourusername/your-repo/issues"
+#Changelog = "https://github.com/yourusername/your-repo/blob/master/CHANGELOG.md"
+
+#[project.scripts]
+# Defines command-line scripts for your lris2csu. Replace with your script and function.
+#your-command = "your_module:your_function"
+
+[project.optional-dependencies]
+# Optional dependencies that can be installed with extra tags, like "dev".
+dev = [
+]
