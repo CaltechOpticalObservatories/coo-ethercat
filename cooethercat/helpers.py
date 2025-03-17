@@ -1,4 +1,5 @@
 from enum import Enum
+import enum
 from logging import getLogger
 from dataclasses import dataclass, astuple
 
@@ -38,10 +39,15 @@ class ControlwordBits(Enum):
     ABSOLUTE_RELATIVE = 6
     FAULT_RESET = 7
 
+class ProgramControlReg(Enum):
+    INITIATE_DEVICE_RESET = 0x2
+
+
+#TODO Controlword and statusword to a register class!!!
 class StatuswordStates(Enum):
     NOT_READY_TO_SWITCH_ON = 0
     SWITCH_ON_DISABLED = 0b1000000
-    READY_TO_SWITCH_ON = 0b0100001
+    READY_TO_SWITCH_ON = 0b0100001  # NB this seems to be the same as "SHUTDOWN"
     SWITCHED_ON = 0b0100011
     OPERATION_ENABLED = 0b0100111
     QUICK_STOP_ACTIVE = 0b0000111
@@ -100,6 +106,14 @@ class HomingMethods(Enum):
     HOME_SWITCH_NEGATIVE_SPEED = 27
     LIMIT_SWITCH_POSITIVE = 18
     LIMIT_SWITCH_NEGATIVE = 17
+    CURRENT_THRESHOLD_POS_SPEED_AND_INDEX = -1
+    CURRENT_THRESHOLD_NEG_SPEED_AND_INDEX = -2
+
+
+class PositionSource(Enum):
+    SSI = enum.auto()
+    CURRENT = enum.auto()
+    USER = enum.auto()
 
 
 # Current state                   States we can go to
@@ -129,8 +143,18 @@ class EPOS4Obj:
 @dataclass(frozen=True)
 class EPOS4Registers:
     """Object dictionary containing the same information as the Firmware Specification guide
-    for the EPOS4 Micro. See section 6.2 for more details"""
+    for the EPOS4 Micro. See section 6.2 for more details
 
+    See https://docs.python.org/3/library/struct.html
+    I uint32
+    i int32
+    B uchar8
+    H uint16
+    Q uint64
+    b char8
+
+
+    """
     ERROR_REGISTER = EPOS4Obj(0x1001, 0x00, 'B', 8) # 6.2.2
     ERROR_CODE = EPOS4Obj(0x603F, 0x00, 'H', 16) # 6.2.2
     SERIAL_NUMBER = EPOS4Obj(0x1018, 0x04, 'I', 32) # 6.2.11.4
@@ -185,6 +209,7 @@ class EPOS4Registers:
     TORQUE_ACTUAL_VALUE = EPOS4Obj(0x6077, 0x00, 'H', 16) # 6.2.109# 9
     TARGET_POSITION = EPOS4Obj(0x607A, 0x00, 'i', 32) # 6.2.113
     PROFILE_VELOCITY = EPOS4Obj(0x6081, 0x00, 'i', 32) # 6.2.118
+    TARGET_VELOCITY = EPOS4Obj(0x60FF, 0x00, 'i', 32) # 6.2.147
     PROFILE_ACCELERATION = EPOS4Obj(0x6083, 0x00, 'i', 32) # 6.2.119
     PROFILE_DECELERATION = EPOS4Obj(0x6084, 0x00, 'i', 32) # 6.2.120
     FOLLOWING_ERROR_ACTUAL_VALUE = EPOS4Obj(0x60F4, 0x00, 'i', 32) # 6.2.144
@@ -192,8 +217,10 @@ class EPOS4Registers:
     PHYSICAL_OUTPUTS = EPOS4Obj(0x60FE, 0x01, 'i', 32) # 6.2.146.1   % SEARCH MARKER: Digital outputs
     NBR_OF_CONFIGURED_MODULES = EPOS4Obj(0xf030, 0x0, 'B', 8) # 6.2.151.1 % SEARCH MARKER: Modular device profile
     MODULE_1 = EPOS4Obj(0xf030, 0x1, 'I', 32) # 6.2.151.2 % SEARCH MARKER: Modular device profile
-    TARGET_VELOCITY = EPOS4Obj(0x60FF, 0x00, 'I', 32) # 6.2.147
-
+    PROGRAM_CONTROL = EPOS4Obj(0x1f51, 0x01, 'B', 8)  # 6.2.35
+    SSI_POSITION_RAW_VALUE = EPOS4Obj(0x3012,0x09,'I',32)  #6.2.55
+    HOMING_METHOD = EPOS4Obj(0x6098, 0x0, 'b', 8)
+    HOME_POSITION = EPOS4Obj(0x30B0, 0x0, 'i', 32)
 
 def getInfo(identifier: str | int, ObjDict) -> None:
     """Search for a command and print all information associated with a particular command name or index.

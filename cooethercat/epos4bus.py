@@ -297,33 +297,54 @@ class EPOS4Bus:
             if time.time() - start > timeout:
                 raise TimeoutError("Timeout while waiting for PDO messages to be received.")
 
-    @pdo_mode_only
-    def home_motors(self, verbose=True):
-        """Start the homing process of all slaves."""
+    # TODO this code, ported from the old library was never fit for purpose.
+    # @pdo_mode_only
+    # def home_motors(self, verbose=True):
+    #     """Start the homing process of all slaves."""
+    #
+    #     if not self.assert_device_states_pdo(StatuswordStates.OPERATION_ENABLED):
+    #         self.set_device_states_pdo(StatuswordStates.OPERATION_ENABLED)
+    #
+    #     for slave in self.slaves:
+    #         slave.change_operating_mode(OperatingModes.HOMING_MODE)
+    #
+    #     self.wait_for_pdo_transmit()
+    #
+    #     for slave in self.slaves:
+    #         data = slave.rx_data
+    #         data[slave._controlwordPDOIndex] = ControlWord.COMMAND_START_HOMING.value
+    #         slave._create_pdo_message(data)
+    #
+    #     self.wait_for_pdo_transmit()
+    #
+    #     for slave in self.slaves:
+    #         data = slave.rx_data
+    #         data[slave._controlwordPDOIndex] = ControlWord.COMMAND_SWITCH_ON_AND_ENABLE.value
+    #         slave._create_pdo_message(data)
+    #
+    #     self.wait_for_pdo_transmit()
+    #
+    #     self._block_until_target(verbose=verbose)
 
-        if not self.assert_device_states_pdo(StatuswordStates.OPERATION_ENABLED):
-            self.set_device_states_pdo(StatuswordStates.OPERATION_ENABLED)
+    def home_using_current_position(self, position_source:Enum, position:int|dict[int,int]=None):
+        if self.pdo_mode_is_active:
+            raise RuntimeError('PDO mode must be disabled before homing with this function')
 
-        for slave in self.slaves:
-            slave.change_operating_mode(OperatingModes.HOMING_MODE)
+        if isinstance(position, int):
+            position = {s.node: position for s in self.slaves}
 
-        self.wait_for_pdo_transmit()
-
-        for slave in self.slaves:
-            data = slave.rx_data
-            data[slave._controlwordPDOIndex] = ControlWord.COMMAND_START_HOMING.value
-            slave._create_pdo_message(data)
-
-        self.wait_for_pdo_transmit()
-
-        for slave in self.slaves:
-            data = slave.rx_data
-            data[slave._controlwordPDOIndex] = ControlWord.COMMAND_SWITCH_ON_AND_ENABLE.value
-            slave._create_pdo_message(data)
-
-        self.wait_for_pdo_transmit()
-
-        self._block_until_target(verbose=verbose)
+        for dev in self.slaves:
+            if dev.node not in position:
+                getLogger(__name__).error(f'No position for {dev.node} in {position}, skipping.')
+                continue
+            try:
+                dev.home_to_actual_position_sdo(position_source, position=position[dev.node])
+            except TimeoutError as e:
+                getLogger(__name__).error(f'Homing of {dev.node} failed with error {e}')
+                continue
+            except RuntimeError as e:
+                getLogger(__name__).error(f'Homing of {dev.node} failed with error {e}')
+                continue
 
     def stop_motors(self):
         for slave in self.slaves:
