@@ -110,6 +110,15 @@ class EPOS4Motor:
 
             time.sleep(self.STATUSWORD_DELAY_TIME)
 
+    def stop(self):
+        self.set_device_state(StatuswordStates.QUICK_STOP_ACTIVE)
+
+    def halt(self):
+        self.set_device_state(StatuswordStates.QUICK_STOP_ACTIVE)
+
+    def abort(self):
+        self.set_device_state(StatuswordStates.QUICK_STOP_ACTIVE)
+
     def reset(self):
         """Reset EPOS4"""
         # TODO if this is triggered the broader ecosystem of whats happening will be impacted. Figure out what needs to
