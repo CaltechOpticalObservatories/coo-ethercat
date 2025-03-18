@@ -28,7 +28,7 @@ class EPOS4Bus:
         """
         self._bus = EthercatBus(interface)
         self.slaves: list["EPOS4Motor"] = []
-        self.PDOCycleTime = 0.002  # 10ms, official sync manager 2 cycle time is 2ms but I've run into issues
+        self._PDO_CYCLE_TIME = 0.002  # 10ms, official sync manager 2 cycle time is 2ms but I've run into issues
         self._pdo_shutdown = threading.Event()
         self._pdo_thread = None
         # self._pdo_lock = threading.Lock()
@@ -127,7 +127,7 @@ class EPOS4Bus:
             slave.set_device_state(state)
 
     ### PDO Methods ###
-    def enable_pdo(self):
+    def enable_pdo(self, shutdown_first=True):
         if self._pdo_thread is not None:
             raise RuntimeError('PDO thread must be terminated and joined')
 
@@ -136,20 +136,26 @@ class EPOS4Bus:
         def pdo_sender():
             self._pdo_shutdown.clear()
             while not self._pdo_shutdown.is_set():
-                #start = time.perf_counter_ns()
+
                 with self._bus.lock:
-                    self._send_pdo(sleep=False)
-                    # time.sleep(max(self.PDOCycleTime - (time.perf_counter_ns() - start) * 1e-9, 0))
-                    #start = time.perf_counter_ns()
-                    self._receive_pdo(sleep=False)
-                # time.sleep(max(self.PDOCycleTime - (time.perf_counter_ns() - start) * 1e-9, 0))
-                time.sleep(self.PDOCycleTime)
+                    start = time.perf_counter_ns()
+                    sent_counter = self._send_pdo(sleep=False)
+                    working_counter = self._receive_pdo(sleep=False)
+                    if working_counter not in (72, 0):
+                        getLogger(__name__).warning(f"PDO send/receive cycle sent {sent_counter}, "
+                                                    f"got working counter {working_counter} ({working_counter/3}*3)")
+
+                    time.sleep(max(self._PDO_CYCLE_TIME - (time.perf_counter_ns() - start) * 1e-9, 0))
 
         self._pdo_thread = threading.Thread(name='Ethercat PDO thread', target=pdo_sender, daemon=True)
 
+        # Bringing the devices into operational state may immediately trigger motion depending on the target
+        #  position.
+        if shutdown_first:
+            self.set_device_states(StatuswordStates.READY_TO_SWITCH_ON)
         self.set_network_state(NetworkManagementStates.OPERATIONAL)
         self._pdo_thread.start()
-        time.sleep(self.PDOCycleTime*8)
+        time.sleep(self._PDO_CYCLE_TIME * 8)
 
         if self.assert_network_state(NetworkManagementStates.OPERATIONAL):
             getLogger(__name__).debug("PDO Enabled")
@@ -176,18 +182,21 @@ class EPOS4Bus:
         return self._pdo_thread and self._pdo_thread.is_alive()
 
     def _send_pdo(self, sleep=True):
+        sent = 0
         with self._bus.lock:
             self._bus.sendProcessData()
             for s in self.slaves:
                 if s.pdo_message_pending.is_set():
                     getLogger(__name__).info(f'Sent pending PDO messaage for slave {s.node}')
+                    sent +=1
                 s.pdo_message_pending.clear()
         if sleep:
-            time.sleep(self.PDOCycleTime)
+            time.sleep(self._PDO_CYCLE_TIME)
+        return sent
 
     def _receive_pdo(self, sleep=True, timeout=2000):
         with self._bus.lock:
-            self._bus.pysoem_master.receive_processdata(timeout=timeout)
+            working_counter = self._bus.pysoem_master.receive_processdata(timeout=timeout)
             start = time.perf_counter_ns()
             for slave in self.slaves:
                 # Put the low level HAL slave byte buffer into slave.PDOInput
@@ -197,7 +206,8 @@ class EPOS4Bus:
 
         # Enforce the minimum PDO cycle time after performing all the above operations
         if sleep:
-            time.sleep(max(self.PDOCycleTime - (finish - start) * 1e-9,0))
+            time.sleep(max(self._PDO_CYCLE_TIME - (finish - start) * 1e-9, 0))
+        return working_counter
 
     def _send_receive_pdo(self, sleep=True, timeout=2000):
         with self._bus.lock:
@@ -256,9 +266,6 @@ class EPOS4Bus:
                 s.rx_data[s._controlwordPDOIndex] = word
                 s._create_pdo_message(s.rx_data)
             self.wait_for_pdo_transmit()
-            for slave in self.slaves:
-                slave.rx_data[slave._controlwordPDOIndex] = controlword
-                slave._create_pdo_message(slave.rx_data)
 
         if timeout:
             self.wait_for_device_states_pdo(state, timeout=timeout)
@@ -271,7 +278,7 @@ class EPOS4Bus:
             string = '  |  '.join([f'Slave {slave.node}' for slave in self.slaves])
             getLogger(__name__).info(string)
 
-        time.sleep(self.PDOCycleTime * 6)
+        time.sleep(self._PDO_CYCLE_TIME * 6)
 
         start_time = time.time()
 
@@ -290,7 +297,7 @@ class EPOS4Bus:
             if not moving:
                 break
 
-            time.sleep(self.PDOCycleTime * 6)
+            time.sleep(self._PDO_CYCLE_TIME * 6)
             # Exit loop if timeout is reached
             if time.time() - start_time > timeout:
                 raise TimeoutError("Timeout while waiting for slaves to reach target positions.")
