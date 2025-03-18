@@ -67,7 +67,7 @@ class EPOS4Motor:
 
     def identify(self, enable=True):
         """Enable or disable identification"""
-        pass
+        raise NotImplementedError
 
     def check_errors(self):
         print(f"Node {self.node} diagnostics:")
@@ -88,7 +88,7 @@ class EPOS4Motor:
         self._sdo_write(self.object_dict.CONTROLWORD, controlword)
         self.wait_for_statusword_bits(1 << StatuswordBits.FAULT.value, bitvalues=0)
 
-    def wait_for_statusword_bits(self, bitmask, bitvalues=-1, timeout=1):
+    def wait_for_statusword_bits(self, bitmask, bitvalues=-1, timeout:float=1):
         """! Wait for the statusword bits of the slave to be set
         @param slave: the slave to wait for the statusword bits of
         @param bitmask: the bitmask of the statusword bits to wait for
@@ -298,8 +298,7 @@ class EPOS4Motor:
     @property
     def debug_info_sdo(self):
         ec = self._sdo_read(self.object_dict.ERROR_CODE)
-        return {'device_state':self.device_state,
-                'position':self._sdo_read(self.object_dict.POSITION_ACTUAL_VALUE),
+        return {'position':self._sdo_read(self.object_dict.POSITION_ACTUAL_VALUE),
                 'target_position': self._sdo_read(self.object_dict.TARGET_POSITION),
                 'error_reg':self._sdo_read(self.object_dict.ERROR_REGISTER),
                 'error_code': EPOS4_ERRORS.get(ec, f'Unknown error code ({ec})'),
@@ -310,7 +309,7 @@ class EPOS4Motor:
                 'velocity_target': self._sdo_read(self.object_dict.TARGET_VELOCITY),
                 'torque_actual' : self._sdo_read(self.object_dict.TORQUE_ACTUAL_VALUE),
                 'controlword': self._sdo_read(self.object_dict.CONTROLWORD),
-                'statusword': self._sdo_read(self.object_dict.STATUSWORD),
+                'statusword': StatuswordRegister(self._sdo_read(self.object_dict.STATUSWORD)).bits_set,
                 }
 
     ### State methods ###
@@ -321,14 +320,11 @@ class EPOS4Motor:
         return self.HAL.getNetworkState(self)
 
     def _set_network_state(self, state: Enum):
-        if isinstance(state, Enum) and not isinstance(state, StatuswordStates):
-            state = state.value
         return self.HAL.setNetworkState(self, state)
 
     def assert_device_state(self, state: Enum) -> bool:
         state = state.value if isinstance(state, Enum) else state
-        # TODO This only compares bits that are SET in the state, that seems like a bad idea
-        maskedWord = (self.get_device_state() & STATUSWORD_STATE_BITMASK) & state
+        maskedWord = self.HAL.SDORead(self, self.object_dict.STATUSWORD) & STATUSWORD_STATE_BITMASK
         return maskedWord == state
 
     def get_device_state(self):
