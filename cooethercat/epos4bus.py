@@ -235,16 +235,26 @@ class EPOS4Bus:
         if self.assert_device_states_pdo(state):
             return
 
-        # TODO get rid of this 4-line nonsense, should consolidate with proper state classes and object methods
-        startingState = getStatuswordState(self.slaves[0]._statusword)
         endState = getStatuswordState(state)
-        state_control_sequence = getStateTransitions(startingState, endState)
-        getLogger(__name__).debug(f'State transition control word sequence: {state_control_sequence}')
 
-        for slave in self.slaves[1:]:
-            assert slave._statusword == self.slaves[0]._statusword, 'Foundational assumption of functional correctness failed.'
+        seq = {}
+        for s in self.slaves:
+            # TODO get rid of this 4-line nonsense, should consolidate with proper state classes and object methods
+            startingState = getStatuswordState(s._statusword)
+            state_control_sequence = getStateTransitions(startingState, endState)
+            getLogger(__name__).debug(f'State transition control word sequence for node {s.node}: {state_control_sequence}')
+            seq[s.node] = state_control_sequence
 
-        for controlword in state_control_sequence:
+        while seq:
+            for s in self.slaves:
+                try:
+                    word = seq[s.node].pop(0)
+                except IndexError:
+                    del seq[s.node]  #done with device
+                except KeyError:
+                    continue
+                s.rx_data[s._controlwordPDOIndex] = word
+                s._create_pdo_message(s.rx_data)
             self.wait_for_pdo_transmit()
             for slave in self.slaves:
                 slave.rx_data[slave._controlwordPDOIndex] = controlword
