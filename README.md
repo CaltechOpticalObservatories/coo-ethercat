@@ -10,12 +10,17 @@
 5. [Notes](#notes)
 
 # Introduction
-This software uses the CAN over EtherCAT (CoE) protocol to control CiA 402 compliant power drive systems from a dedicated control computer/linux box. The control computer should have a dedicated NIC attached via ethernet cable to an EtherCAT motor controller hardware network in a ring topology. Another NIC should be used to input high level requests via a socket to this software.
+In short, this repository allows you to control EtherCAT hardware from a desktop PC.
+
+This software uses the CAN over EtherCAT (CoE) protocol to control CiA 402 compliant motion controller from a desktop PC. The control computer is acting as a soft master in this scheme and should have a dedicated NIC (Ethernet port with own hardware) attached via ethernet cable to an EtherCAT motion controller thus linking the soft master into the dedicated EtherCAT network. __Specifically, do not route the EtherCAT traffic through a network switch.__
 
 # Quick Start
 1. Update [settings](settings/masterSettings.yaml) with the network interface name of the NIC attached to the EtherCAT hardware.
 2. Update [settings](settings/serverSettings.yaml) with a host IP and port that will be assigned to this software's listening socket.
-3. On a remote machine use the same host IP and port to send motion requests to the workers. See [`src/server.py`](src/server.py) for a comment detailing the required message formats for various actions. To home all workers, send the byte output of: `struct.pack('<HB', 3, 0)`
+3. Start the server with `python3 start.py`.
+4. On a remote machine (can also be same machine for testing) use the same host IP and port to send motion requests to the workers. See [`src/server.py`](src/server.py) for a comment detailing the required message formats for various actions. To home all workers, send the byte output of: `struct.pack('<HB', 3, 0)`
+5. The script `commands.py` can pack and send this information for you.
+5. The script `run_hom.sh` is a simple example of how to send a homing request to the server using `commands.py` and `run_ppmpdo.sh` is an example of how to send a profile position mode request to the server. 
 
 
 # CiA 402 Specification  
