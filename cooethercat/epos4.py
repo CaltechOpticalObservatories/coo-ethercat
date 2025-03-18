@@ -129,61 +129,89 @@ class EPOS4Motor:
 
     def home_via_method(self, method, timeout=10):
 
-        if method == HomingMethods.CURRENT_THRESHOLD_NEG_SPEED_AND_INDEX:
-            raise NotImplementedError
-        else:
-            raise NotImplementedError
+        STATUSWORD_COMMAND_SHUTDOWN_VALUE = 0b100001
+        STATUSWORD_COMMAND_SWITCH_ON_AND_ENABLE_VALUE = 0b110111
+        STATUSWORD_COMMAND_SHUTDOWN_MASK = 0b111111
+        STATUSWORD_COMMAND_SWITCH_ON_AND_ENABLE_MASK = 0b111111
 
-        #Old code to reference when writing:
-        # set_quick_stop_deceleration(slave, 100000)
-        # set_homing_speed(slave, 100)
-        # set_homing_acceleration(slave, 10000)
-        # set_home_offset_move_distance(slave, 0)
-        #
-        # # Homing phase 1: drive to negative hardstop
-        # set_homing_method(slave, HOMING_METHOD_LIMIT_SWITCH_NEGATIVE)
-        # set_controlword(slave, CONTROLWORD_COMMAND_SHUTDOWN)
-        # wait_for_statusword_bits(slave, STATUSWORD_COMMAND_SHUTDOWN_MASK, STATUSWORD_COMMAND_SHUTDOWN_VALUE)
-        # set_controlword(slave, CONTROLWORD_COMMAND_SWITCH_ON_AND_ENABLE)
-        # wait_for_statusword_bits(slave, STATUSWORD_COMMAND_SWITCH_ON_AND_ENABLE_MASK,
-        #                          STATUSWORD_COMMAND_SWITCH_ON_AND_ENABLE_VALUE)
-        # set_controlword(slave, CONTROLWORD_COMMAND_START_HOMING)
-        #
-        # # Temporary method of homing used until future method is implemented
-        # last_position = get_ssi_position_raw_value_complete(slave)
-        # current_position = last_position
-        # while True:
-        #     delta = abs(current_position - last_position)
-        #     if delta > ssi_maximum_position_jump:
-        #         set_controlword(slave, CONTROLWORD_COMMAND_QUICK_STOP)
-        #         wait_for_statusword_bits(slave, 1 << STATUSWORD_BIT_OFFSET_QUICK_STOP)
-        #         logging.info('home_slave: homing passed phase 1 due to SSI encoder position jump of {}'.format(delta))
-        #         break
-        #     last_position = current_position
-        #     current_position = get_ssi_position_raw_value_complete(slave)
-        #     logging.info('home_slave: homing phase 1 current position {}'.format(current_position))
-        #     time.sleep(0.01)
-        #
-        # # Correct method of homing to be implemented physically in the future listed below
-        # # while get_statusword(slave) & bit_offset_to_mask(STATUSWORD_BIT_OFFSET_HOMING_ATTAINED) == 0:
-        # #     time.sleep(0.1)
-        #
-        # # Homing phase 2: get absolute position from SSI encoder
-        # time.sleep(2)
-        # set_home_position(slave, get_ssi_position_raw_value_complete(slave))
-        # set_homing_method(slave, HOMING_METHOD_ACTUAL_POSITION)
-        # set_controlword(slave, CONTROLWORD_COMMAND_SHUTDOWN)
-        # wait_for_statusword_bits(slave, STATUSWORD_COMMAND_SHUTDOWN_MASK, STATUSWORD_COMMAND_SHUTDOWN_VALUE)
-        # set_controlword(slave, CONTROLWORD_COMMAND_SWITCH_ON_AND_ENABLE)
-        # wait_for_statusword_bits(slave, STATUSWORD_COMMAND_SWITCH_ON_AND_ENABLE_MASK,
-        #                          STATUSWORD_COMMAND_SWITCH_ON_AND_ENABLE_VALUE)
-        # set_controlword(slave, CONTROLWORD_COMMAND_START_HOMING)
-        # if get_statusword(slave) & bit_offset_to_mask(STATUSWORD_BIT_OFFSET_HOMING_ERROR) == 1:
-        #     logging.error('home_slave: homing failed')
-        #     return
-        #
-        # logging.info('home_slave: homing successful')
-        # logging.info('home_slave: absolute position: {}'.format(get_ssi_position_raw_value_complete(slave)))
+        #make sure we are shutdown
+        self._sdo_write(self.object_dict.CONTROLWORD, ControlwordStateCommands.SHUTDOWN)
+        time.sleep(self.CONTROLWORD_DELAY_TIME)  # Needed before continuing or checking statusword
+        self.wait_for_statusword_bits(STATUSWORD_COMMAND_SHUTDOWN_MASK, STATUSWORD_COMMAND_SHUTDOWN_VALUE,
+                                      timeout=.5)
+
+        # Homing mode
+        self._sdo_write(self.object_dict.MODES_OF_OPERATION, OperatingModes.HOMING_MODE)
+        tic = time.time()
+        while self._sdo_read(self.object_dict.MODES_OF_OPERATION_DISPLAY) != OperatingModes.HOMING_MODE.value:
+            time.sleep(0.1)
+            if time.time() - tic > .5:
+                raise TimeoutError(f'Timeout waiting for homing mode on {self.node}.')
+
+        home_pos = 0
+        offset_distance = 100  #move away from limit for neg direction
+        current_threshold = -200  # neg for neg direction
+
+        if method in (HomingMethods.CURRENT_THRESHOLD_POS_SPEED_AND_INDEX, HomingMethods.LIMIT_SWITCH_POSITIVE,
+            HomingMethods.HOME_SWITCH_POSITIVE_SPEED, HomingMethods.INDEX_POSITIVE_SPEED):
+            sign = -1
+        else:
+            sign = 1
+
+        # self._sdo_write(self.object_dict.FOLLOWING_ERROR_WINDOW, 1000)
+        # self._sdo_write(self.object_dict.MAX_PROFILE_VELOCITY, 8000)
+        # self._sdo_write(self.object_dict.QUICK_STOP_DECELERATION, 10000)
+        self._sdo_write(self.object_dict.HOMING_ACCELERATION, 5000)
+        self._sdo_write(self.object_dict.SPEED_FOR_SWITCH_SEARCH, 4000)
+        self._sdo_write(self.object_dict.SPEED_FOR_ZERO_SEARCH, 50)
+        self._sdo_write(self.object_dict.HOMING_CURRENT_THRESHOLD, current_threshold*sign)
+        self._sdo_write(self.object_dict.HOME_OFFSET_MOVE_DISTANCE, offset_distance*sign)
+        self._sdo_write(self.object_dict.HOME_POSITION, home_pos)
+
+        self._sdo_write(self.object_dict.HOMING_METHOD, method)
+
+        self._sdo_write(self.object_dict.CONTROLWORD, ControlwordStateCommands.SHUTDOWN)
+        time.sleep(self.CONTROLWORD_DELAY_TIME)  # Needed before continuing or checking statusword
+        self.wait_for_statusword_bits(STATUSWORD_COMMAND_SHUTDOWN_MASK, STATUSWORD_COMMAND_SHUTDOWN_VALUE,
+                                      timeout=timeout)
+
+        self._sdo_write(self.object_dict.CONTROLWORD, ControlwordStateCommands.SWITCH_ON_AND_ENABLE)
+        time.sleep(self.CONTROLWORD_DELAY_TIME)  # Needed before continuing or checking statusword
+        self.wait_for_statusword_bits(STATUSWORD_COMMAND_SWITCH_ON_AND_ENABLE_MASK,
+                                      STATUSWORD_COMMAND_SWITCH_ON_AND_ENABLE_VALUE, timeout=timeout)
+
+        self._sdo_write(self.object_dict.CONTROLWORD, ControlWord.COMMAND_START_HOMING)
+        time.sleep(self.CONTROLWORD_DELAY_TIME)  # Needed before continuing or checking statusword
+
+        mask = 0
+        for bit in (StatuswordBits.FAULT, StatuswordBits.FAULT.HOMING_ERROR, StatuswordBits.FAULT.HOMING_ATTAINED):
+            mask |= 1 << bit.value
+        while True:
+            statusword = self._sdo_read(self.object_dict.STATUSWORD)
+            if statusword & mask:
+                break
+
+            time.sleep(0.1)
+            timeout -= 0.1
+            if timeout < 0:
+                raise TimeoutError(f'Timeout waiting for homing statusword ({bin(statusword)}) '
+                                   f'with bitmask ({bin(mask)})')
+
+        if not statusword & (1 << StatuswordBits.FAULT.HOMING_ATTAINED.value):
+            getLogger(__name__).error(
+                f'Homing failed on {self.node} via {method}. Statusword: {bin(statusword)}')
+            raise RuntimeError(f'Homing failed on {self.node} via {method}. Statusword: {bin(statusword)}')
+
+        getLogger(__name__).info(f'Homed {self.node} via {method}.')
+
+        self._sdo_write(self.object_dict.CONTROLWORD, ControlwordStateCommands.SHUTDOWN)
+        time.sleep(self.CONTROLWORD_DELAY_TIME)  # Needed before continuing or checking statusword
+        self.wait_for_statusword_bits(STATUSWORD_COMMAND_SHUTDOWN_MASK, STATUSWORD_COMMAND_SHUTDOWN_VALUE, timeout=.5)
+
+        if not statusword & (1 << StatuswordBits.FAULT.HOMING_ATTAINED.value):
+            getLogger(__name__).error(
+                f'Homing failed on {self.node} via {method}. Statusword: {bin(statusword)}')
+            raise RuntimeError(f'Homing failed on {self.node} via {method}. Statusword: {bin(statusword)}')
 
 
     def home_to_actual_position_sdo(self, position_source: PositionSource, position:int=None, timeout=10):
