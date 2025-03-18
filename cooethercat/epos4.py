@@ -204,12 +204,12 @@ class EPOS4Motor:
         STATUSWORD_COMMAND_SHUTDOWN_MASK                = 0b111111
         STATUSWORD_COMMAND_SWITCH_ON_AND_ENABLE_MASK    = 0b111111
 
-        self._sdo_write(self.object_dict.CONTROLWORD, ControlWord.COMMAND_SHUTDOWN)
+        self._sdo_write(self.object_dict.CONTROLWORD, ControlwordStateCommands.SHUTDOWN)
         time.sleep(self.CONTROLWORD_DELAY_TIME)  # Needed before continuing or checking statusword
         self.wait_for_statusword_bits(STATUSWORD_COMMAND_SHUTDOWN_MASK, STATUSWORD_COMMAND_SHUTDOWN_VALUE,
                                       timeout=timeout)
 
-        self._sdo_write(self.object_dict.CONTROLWORD, ControlWord.COMMAND_SWITCH_ON_AND_ENABLE)
+        self._sdo_write(self.object_dict.CONTROLWORD, ControlwordStateCommands.SWITCH_ON_AND_ENABLE)
         time.sleep(self.CONTROLWORD_DELAY_TIME)  # Needed before continuing or checking statusword
         self.wait_for_statusword_bits(STATUSWORD_COMMAND_SWITCH_ON_AND_ENABLE_MASK,
                                       STATUSWORD_COMMAND_SWITCH_ON_AND_ENABLE_VALUE, timeout=timeout)
@@ -237,7 +237,7 @@ class EPOS4Motor:
 
         getLogger(__name__).info(f'Homed {self.node} via {position_source}.')
 
-        self._sdo_write(self.object_dict.CONTROLWORD, ControlWord.COMMAND_SHUTDOWN)
+        self._sdo_write(self.object_dict.CONTROLWORD, ControlwordStateCommands.SHUTDOWN)
         time.sleep(self.CONTROLWORD_DELAY_TIME)  # Needed before continuing or checking statusword
         self.wait_for_statusword_bits(STATUSWORD_COMMAND_SHUTDOWN_MASK, STATUSWORD_COMMAND_SHUTDOWN_VALUE,
                                       timeout=timeout)
@@ -462,7 +462,7 @@ class EPOS4Motor:
             time.sleep(.1)  # todo don't have access to pdo cycle time in this object but that is the relevant interval
 
         data = self.rx_data
-        data[self._controlwordPDOIndex] = ControlWord.COMMAND_SWITCH_ON_AND_ENABLE.value
+        data[self._controlwordPDOIndex] = ControlwordStateCommands.SWITCH_ON_AND_ENABLE.value
         self._create_pdo_message(data)
 
         while self.pdo_message_pending.is_set():
@@ -489,7 +489,7 @@ class EPOS4Motor:
         time.sleep(1)
 
         data = self.rx_data
-        data[self._controlwordPDOIndex] = ControlWord.COMMAND_SWITCH_ON_AND_ENABLE.value
+        data[self._controlwordPDOIndex] = ControlwordStateCommands.SWITCH_ON_AND_ENABLE.value
         data[1] = position  # Target position
         data[2] = 10000  # Profile acceleration
         data[3] = 10000  # Profile deceleration

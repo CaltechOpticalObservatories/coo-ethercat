@@ -5,8 +5,7 @@ from enum import Enum
 from logging import getLogger
 
 from cooethercat.bus import EthercatBus
-from cooethercat.helpers import NetworkManagementStates, assertStatuswordState, STATUSWORD_STATE_BITMASK, \
-    getStatuswordState, getStateTransitions, OperatingModes, ControlWord, StatuswordStates
+from cooethercat.helpers import *
 
 # from cooethercat.epos4 import EPOS4Motor
 
@@ -319,7 +318,7 @@ class EPOS4Bus:
     #
     #     for slave in self.slaves:
     #         data = slave.rx_data
-    #         data[slave._controlwordPDOIndex] = ControlWord.COMMAND_SWITCH_ON_AND_ENABLE.value
+    #         data[slave._controlwordPDOIndex] = ControlwordStateCommands.SWITCH_ON_AND_ENABLE.value
     #         slave._create_pdo_message(data)
     #
     #     self.wait_for_pdo_transmit()
@@ -346,10 +345,11 @@ class EPOS4Bus:
                 getLogger(__name__).error(f'Homing of {dev.node} failed with error {e}')
                 continue
 
+    @pdo_mode_only
     def stop_motors(self):
         for slave in self.slaves:
             data = slave.rx_data
-            data[slave._controlwordPDOIndex] = ControlWord.COMMAND_QUICK_STOP.value
+            data[slave._controlwordPDOIndex] = ControlwordStateCommands.QUICK_STOP.value
             slave._create_pdo_message(data)
 
     @pdo_mode_only
@@ -363,6 +363,7 @@ class EPOS4Bus:
 
         # Ensure the network is in operational mode
         if not self.assert_device_states_pdo(StatuswordStates.OPERATION_ENABLED):
+            getLogger(__name__).debug('Setting network state to OPERATION_ENABLED')
             self.set_device_states_pdo(StatuswordStates.OPERATION_ENABLED)
 
         # for slave in self.slaves:
@@ -370,7 +371,7 @@ class EPOS4Bus:
 
         for slave in self.slaves:
             data = slave.rx_data
-            data[slave._controlwordPDOIndex] = ControlWord.COMMAND_SHUTDOWN.value
+            data[slave._controlwordPDOIndex] = ControlwordStateCommands.SHUTDOWN.value
             slave._create_pdo_message(data)
 
         self.wait_for_pdo_transmit()
@@ -378,7 +379,7 @@ class EPOS4Bus:
 
         for slave in self.slaves:
             data = slave.rx_data
-            data[slave._controlwordPDOIndex] = ControlWord.COMMAND_SWITCH_ON_AND_ENABLE.value
+            data[slave._controlwordPDOIndex] = ControlwordStateCommands.SWITCH_ON_AND_ENABLE.value
             data[5] = OperatingModes.PROFILE_POSITION_MODE.value
             slave._create_pdo_message(data)
 

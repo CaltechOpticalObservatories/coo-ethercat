@@ -20,24 +20,35 @@ class EPOS4ErrorBits(Enum):
     CURRENT_ERROR = 1
     GENERIC_ERROR = 0  # Generic error
 
+
+#TODO ControlWord and ControlwordStateCommands are a result on needing a proper class around use of
+# state transitions and the controlword register
 class ControlWord(Enum):
-    COMMAND_SHUTDOWN = 0x0006
-    COMMAND_SWITCH_ON_AND_ENABLE = 0x000F
     COMMAND_START_HOMING = 0x001F
-    COMMAND_QUICK_STOP = 0x000B
     COMMAND_HALT_HOMING = 0x011F
     COMMAND_ABSOLUTE_START_IMMEDIATELY = 0x003F
 
-class ControlwordBits(Enum):
-    HALT = 8
-    START_HOMING = 4
+class ControlwordStateCommands(Enum):
+    SHUTDOWN = 6
+    SWITCH_ON = 7
+    SWITCH_ON_AND_ENABLE = 15
+    DISABLE_VOLTAGE = 0
     QUICK_STOP = 2
+    DISABLE_OPERATION = 7
+    ENABLE_OPERATION = 15
+    FAULT_RESET = 128
+
+class ControlwordBits(Enum):  #6.2.85
+    SWITCHED_ON = 0
     ENABLE_VOLTAGE = 1
+    QUICK_STOP = 2
     ENABLE_OPERATION = 3
     NEW_SETPOINT = 4
+    START_HOMING = 4
     CHANGE_SET_IMMEDIATELY = 5
     ABSOLUTE_RELATIVE = 6
     FAULT_RESET = 7
+    HALT = 8
 
 class ProgramControlReg(Enum):
     INITIATE_DEVICE_RESET = 0x2
@@ -47,12 +58,29 @@ class ProgramControlReg(Enum):
 class StatuswordStates(Enum):
     NOT_READY_TO_SWITCH_ON = 0
     SWITCH_ON_DISABLED = 0b1000000
-    READY_TO_SWITCH_ON = 0b0100001  # NB this seems to be the same as "SHUTDOWN"
+    READY_TO_SWITCH_ON = 0b0100001
     SWITCHED_ON = 0b0100011
     OPERATION_ENABLED = 0b0100111
     QUICK_STOP_ACTIVE = 0b0000111
     FAULT_REACTION_ACTIVE = 0b0001111
     FAULT = 0b0001000
+
+class StatuswordRegister:
+    STATUSWORD_STATE_BITMASK = 0b1101111
+
+    def __init__(self, statusword):
+        self.statusword = statusword
+
+    @property
+    def bits_set(self):
+        return tuple(bit for bit in StatuswordBits if (1<<bit.value) & self.statusword)
+
+    @property
+    def state(self):
+        try:
+            return StatuswordStates(self.statusword & self.STATUSWORD_STATE_BITMASK)
+        except ValueError:
+            return f'Undefined StatuswordState (hex(self.statusword)):'
 
 class StatuswordBits(Enum):
     READY_TO_SWITCH_ON = 0
@@ -63,7 +91,7 @@ class StatuswordBits(Enum):
     QUICK_STOP = 5
     SWITCH_ON_DISABLED = 6
     WARNING = 7
-    REMOTE = 9
+    REMOTE = 9  # indicates NMT state is "OPERATIONAL"
     TARGET_REACHED = 10
     INTERNAL_LIMIT_ACTIVE = 11
     HOMING_ATTAINED = 12
@@ -79,16 +107,6 @@ class NetworkManagementStates(Enum):
     OPERATIONAL = 0x08
     ERROR = 0x10
     ACK = 0x10
-
-class StateCommands(Enum):
-    SHUTDOWN = 0b0000000000000110
-    SWITCH_ON = 0b0000000000000111
-    SWITCH_ON_AND_ENABLE = 0b0000000000001111
-    DISABLE_VOLTAGE = 0b0000000000000000
-    QUICK_STOP = 0b0000000000000010
-    DISABLE_OPERATION = 0b0000000000000111
-    ENABLE_OPERATION = 0b0000000000001111
-    FAULT_RESET = 0b0000000010000000
 
 class OperatingModes(Enum):
     PROFILE_POSITION_MODE = 1
@@ -119,13 +137,13 @@ class PositionSource(Enum):
 # Current state                   States we can go to
 EPOS4_STATE_MACHINE = {
     'NOT_READY_TO_SWITCH_ON':     {},
-    'SWITCH_ON_DISABLED':         {'READY_TO_SWITCH_ON': StateCommands.SHUTDOWN},
-    'READY_TO_SWITCH_ON':         {'SWITCH_ON_DISABLED': StateCommands.DISABLE_VOLTAGE, 'OPERATION_ENABLED': StateCommands.SWITCH_ON_AND_ENABLE, 'SWITCHED_ON': StateCommands.SWITCH_ON}, #'OPERATION_ENABLED': stateCommands.SWITCH_ON_AND_ENABLE, <- should be in second index (yes, dicts become iterable and order specific with the items() function)
-    'SWITCHED_ON':                {'READY_TO_SWITCH_ON': StateCommands.SHUTDOWN, 'OPERATION_ENABLED': StateCommands.ENABLE_OPERATION, 'SWITCH_ON_DISABLED': StateCommands.DISABLE_VOLTAGE},
-    'OPERATION_ENABLED':          {'SWITCHED_ON': StateCommands.DISABLE_OPERATION, 'QUICK_STOP_ACTIVE': StateCommands.QUICK_STOP, 'READY_TO_SWITCH_ON': StateCommands.SHUTDOWN, 'SWITCH_ON_DISABLED': StateCommands.DISABLE_VOLTAGE},
-    'QUICK_STOP_ACTIVE':          {'OPERATION_ENABLED': StateCommands.ENABLE_OPERATION, 'SWITCH_ON_DISABLED': StateCommands.DISABLE_VOLTAGE},
-    'FAULT_REACTION_ACTIVE':      {'FAULT': StateCommands.FAULT_RESET},
-    'FAULT':                      {'SWITCH_ON_DISABLED': StateCommands.FAULT_RESET}
+    'SWITCH_ON_DISABLED':         {'READY_TO_SWITCH_ON': ControlwordStateCommands.SHUTDOWN},
+    'READY_TO_SWITCH_ON':         {'SWITCH_ON_DISABLED': ControlwordStateCommands.DISABLE_VOLTAGE, 'OPERATION_ENABLED': ControlwordStateCommands.SWITCH_ON_AND_ENABLE, 'SWITCHED_ON': ControlwordStateCommands.SWITCH_ON}, #'OPERATION_ENABLED': stateCommands.SWITCH_ON_AND_ENABLE, <- should be in second index (yes, dicts become iterable and order specific with the items() function)
+    'SWITCHED_ON':                {'READY_TO_SWITCH_ON': ControlwordStateCommands.SHUTDOWN, 'OPERATION_ENABLED': ControlwordStateCommands.ENABLE_OPERATION, 'SWITCH_ON_DISABLED': ControlwordStateCommands.DISABLE_VOLTAGE},
+    'OPERATION_ENABLED':          {'SWITCHED_ON': ControlwordStateCommands.DISABLE_OPERATION, 'QUICK_STOP_ACTIVE': ControlwordStateCommands.QUICK_STOP, 'READY_TO_SWITCH_ON': ControlwordStateCommands.SHUTDOWN, 'SWITCH_ON_DISABLED': ControlwordStateCommands.DISABLE_VOLTAGE},
+    'QUICK_STOP_ACTIVE':          {'OPERATION_ENABLED': ControlwordStateCommands.ENABLE_OPERATION, 'SWITCH_ON_DISABLED': ControlwordStateCommands.DISABLE_VOLTAGE},
+    'FAULT_REACTION_ACTIVE':      {'FAULT': ControlwordStateCommands.FAULT_RESET},
+    'FAULT':                      {'SWITCH_ON_DISABLED': ControlwordStateCommands.FAULT_RESET}
     }
 
 @dataclass(frozen=True)
