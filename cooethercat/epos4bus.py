@@ -373,8 +373,7 @@ class EPOS4Bus:
             data = slave.rx_data
             data[slave._controlwordPDOIndex] = ControlwordStateCommands.SHUTDOWN.value
             slave._create_pdo_message(data)
-
-        self.wait_for_pdo_transmit()
+            self.wait_for_pdo_transmit()
         time.sleep(0.1)
 
         for slave in self.slaves:
@@ -382,8 +381,7 @@ class EPOS4Bus:
             data[slave._controlwordPDOIndex] = ControlwordStateCommands.SWITCH_ON_AND_ENABLE.value
             data[5] = OperatingModes.PROFILE_POSITION_MODE.value
             slave._create_pdo_message(data)
-
-        self.wait_for_pdo_transmit()
+            self.wait_for_pdo_transmit()
         time.sleep(0.1)
 
         for id, position in positions.items():
@@ -405,7 +403,7 @@ class EPOS4Bus:
             data[4] = int(speed)  # Profile velocity
             slave._create_pdo_message(data)  # Create PDO message for this slave
 
-        self.wait_for_pdo_transmit()
+            self.wait_for_pdo_transmit()
 
         #TODO figure this out, the controlword used corresponds to START_HOMING
         # # Remove the start PPM motion control word from all slave buffers (necessary to avoid faults)
