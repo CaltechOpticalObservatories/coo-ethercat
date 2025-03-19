@@ -285,8 +285,8 @@ class EPOS4Bus:
             strings = []
             for slave in self.slaves:
                 # Print the actual position if asked
-                strings.append(f'{slave.position}')
-                moving |= slave.moving
+                strings.append(f'{slave.position_pdo}')
+                moving |= slave.moving_pdo
 
             if verbose:
                 getLogger(__name__).info('  |  '.join(strings))
