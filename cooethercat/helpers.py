@@ -1,9 +1,10 @@
 from enum import Enum
+import enum
 from logging import getLogger
 from dataclasses import dataclass, astuple
 
 
-STATUSWORD_STATE_BITMASK = 0b1101111
+
 
 class IncorrectState(Exception):
     pass
@@ -19,25 +20,43 @@ class EPOS4ErrorBits(Enum):
     CURRENT_ERROR = 1
     GENERIC_ERROR = 0  # Generic error
 
+
+#TODO ControlWord and ControlwordStateCommands are a result on needing a proper class around use of
+# state transitions and the controlword register
 class ControlWord(Enum):
-    COMMAND_SHUTDOWN = 0x0006
-    COMMAND_SWITCH_ON_AND_ENABLE = 0x000F
     COMMAND_START_HOMING = 0x001F
-    COMMAND_QUICK_STOP = 0x000B
     COMMAND_HALT_HOMING = 0x011F
     COMMAND_ABSOLUTE_START_IMMEDIATELY = 0x003F
+    COMMAND_RELATIVE_START_IMMEDIATELY = 0x007F
 
-class ControlwordBits(Enum):
-    HALT = 8
-    START_HOMING = 4
+class ControlwordStateCommands(Enum):
+    SHUTDOWN = 6
+    SWITCH_ON = 7
+    SWITCH_ON_AND_ENABLE = 15
+    DISABLE_VOLTAGE = 0
     QUICK_STOP = 2
+    DISABLE_OPERATION = 7
+    ENABLE_OPERATION = 15
+    FAULT_RESET = 128
+
+class ControlwordBits(Enum):  #6.2.85
+    SWITCHED_ON = 0
     ENABLE_VOLTAGE = 1
+    QUICK_STOP = 2
     ENABLE_OPERATION = 3
     NEW_SETPOINT = 4
+    START_HOMING = 4
     CHANGE_SET_IMMEDIATELY = 5
     ABSOLUTE_RELATIVE = 6
     FAULT_RESET = 7
+    HALT = 8
 
+class ProgramControlReg(Enum):
+    INITIATE_DEVICE_RESET = 0x2
+
+
+#TODO Controlword and statusword to a register class!!!
+STATUSWORD_STATE_BITMASK = 0b1101111
 class StatuswordStates(Enum):
     NOT_READY_TO_SWITCH_ON = 0
     SWITCH_ON_DISABLED = 0b1000000
@@ -57,12 +76,55 @@ class StatuswordBits(Enum):
     QUICK_STOP = 5
     SWITCH_ON_DISABLED = 6
     WARNING = 7
-    REMOTE = 9
+    REMOTE = 9  # indicates NMT state is "OPERATIONAL"
     TARGET_REACHED = 10
     INTERNAL_LIMIT_ACTIVE = 11
     HOMING_ATTAINED = 12
     HOMING_ERROR = 13
     POSITION_REFERENCE_TO_HOME = 15
+
+class StatuswordRegister:
+    STATUSWORD_STATE_BITMASK = 0b1101111
+
+    def __init__(self, statusword:int|StatuswordStates=None, bits: tuple[StatuswordBits,...] = None):
+        """
+        Initialize the StatuswordRegister instance with either a statusword (integer or StatuswordStates)
+        or a set of StatuswordBits.
+        
+        Args:
+            statusword (int, StatuswordStates, optional): The raw statusword value as an integer. Defaults to None.
+            bits (tuple[StatuswordBits], optional): A tuple of StatuswordBits to set in the statusword. 
+                Each bit represents a specific status in the statusword. Defaults to None.
+        
+        Raises:
+            ValueError: If an element in 'bits' is not an instance of StatuswordBits or if
+            neither 'statusword' nor 'bits' is provided.
+        """
+        self.statusword = statusword.value if isinstance(statusword, StatuswordStates) else statusword
+        if bits is not None:
+            self.statusword = 0
+            for bit in bits:
+                if bit not in StatuswordBits:
+                    raise ValueError(f'bit must be a StatuswordBits, not {bit}')
+                self.statusword |= 1 << bit.value
+        if self.statusword is None:
+            raise ValueError('statusword or bits must be set')
+
+    @property
+    def bits_set(self)->tuple[StatuswordBits,...]:
+        return tuple(bit for bit in StatuswordBits if (1<<bit.value) & self.statusword)
+
+    @property
+    def state(self)->StatuswordStates:
+        return StatuswordStates(self.statusword & self.STATUSWORD_STATE_BITMASK)
+
+    def __contains__(self, item):
+        if not isinstance(item, StatuswordBits):
+            raise ValueError('item must be a StatuswordBits Enum')
+        return self.statusword & (1<<item.value)
+
+    def __repr__(self):
+        return f'{self.__class__.__name__}(statusword={bin(self.statusword)}, bits={self.bits_set})'
 
 class NetworkManagementStates(Enum):
     NONE = 0x00
@@ -73,16 +135,6 @@ class NetworkManagementStates(Enum):
     OPERATIONAL = 0x08
     ERROR = 0x10
     ACK = 0x10
-
-class StateCommands(Enum):
-    SHUTDOWN = 0b0000000000000110
-    SWITCH_ON = 0b0000000000000111
-    SWITCH_ON_AND_ENABLE = 0b0000000000001111
-    DISABLE_VOLTAGE = 0b0000000000000000
-    QUICK_STOP = 0b0000000000000010
-    DISABLE_OPERATION = 0b0000000000000111
-    ENABLE_OPERATION = 0b0000000000001111
-    FAULT_RESET = 0b0000000010000000
 
 class OperatingModes(Enum):
     PROFILE_POSITION_MODE = 1
@@ -100,18 +152,26 @@ class HomingMethods(Enum):
     HOME_SWITCH_NEGATIVE_SPEED = 27
     LIMIT_SWITCH_POSITIVE = 18
     LIMIT_SWITCH_NEGATIVE = 17
+    CURRENT_THRESHOLD_POS_SPEED_AND_INDEX = -1
+    CURRENT_THRESHOLD_NEG_SPEED_AND_INDEX = -2
+
+
+class PositionSource(Enum):
+    SSI = enum.auto()
+    CURRENT = enum.auto()
+    USER = enum.auto()
 
 
 # Current state                   States we can go to
 EPOS4_STATE_MACHINE = {
     'NOT_READY_TO_SWITCH_ON':     {},
-    'SWITCH_ON_DISABLED':         {'READY_TO_SWITCH_ON': StateCommands.SHUTDOWN},
-    'READY_TO_SWITCH_ON':         {'SWITCH_ON_DISABLED': StateCommands.DISABLE_VOLTAGE, 'OPERATION_ENABLED': StateCommands.SWITCH_ON_AND_ENABLE, 'SWITCHED_ON': StateCommands.SWITCH_ON}, #'OPERATION_ENABLED': stateCommands.SWITCH_ON_AND_ENABLE, <- should be in second index (yes, dicts become iterable and order specific with the items() function)
-    'SWITCHED_ON':                {'READY_TO_SWITCH_ON': StateCommands.SHUTDOWN, 'OPERATION_ENABLED': StateCommands.ENABLE_OPERATION, 'SWITCH_ON_DISABLED': StateCommands.DISABLE_VOLTAGE},
-    'OPERATION_ENABLED':          {'SWITCHED_ON': StateCommands.DISABLE_OPERATION, 'QUICK_STOP_ACTIVE': StateCommands.QUICK_STOP, 'READY_TO_SWITCH_ON': StateCommands.SHUTDOWN, 'SWITCH_ON_DISABLED': StateCommands.DISABLE_VOLTAGE},
-    'QUICK_STOP_ACTIVE':          {'OPERATION_ENABLED': StateCommands.ENABLE_OPERATION, 'SWITCH_ON_DISABLED': StateCommands.DISABLE_VOLTAGE},
-    'FAULT_REACTION_ACTIVE':      {'FAULT': StateCommands.FAULT_RESET},
-    'FAULT':                      {'SWITCH_ON_DISABLED': StateCommands.FAULT_RESET}
+    'SWITCH_ON_DISABLED':         {'READY_TO_SWITCH_ON': ControlwordStateCommands.SHUTDOWN},
+    'READY_TO_SWITCH_ON':         {'SWITCH_ON_DISABLED': ControlwordStateCommands.DISABLE_VOLTAGE, 'OPERATION_ENABLED': ControlwordStateCommands.SWITCH_ON_AND_ENABLE, 'SWITCHED_ON': ControlwordStateCommands.SWITCH_ON}, #'OPERATION_ENABLED': stateCommands.SWITCH_ON_AND_ENABLE, <- should be in second index (yes, dicts become iterable and order specific with the items() function)
+    'SWITCHED_ON':                {'READY_TO_SWITCH_ON': ControlwordStateCommands.SHUTDOWN, 'OPERATION_ENABLED': ControlwordStateCommands.ENABLE_OPERATION, 'SWITCH_ON_DISABLED': ControlwordStateCommands.DISABLE_VOLTAGE},
+    'OPERATION_ENABLED':          {'SWITCHED_ON': ControlwordStateCommands.DISABLE_OPERATION, 'QUICK_STOP_ACTIVE': ControlwordStateCommands.QUICK_STOP, 'READY_TO_SWITCH_ON': ControlwordStateCommands.SHUTDOWN, 'SWITCH_ON_DISABLED': ControlwordStateCommands.DISABLE_VOLTAGE},
+    'QUICK_STOP_ACTIVE':          {'OPERATION_ENABLED': ControlwordStateCommands.ENABLE_OPERATION, 'SWITCH_ON_DISABLED': ControlwordStateCommands.DISABLE_VOLTAGE},
+    'FAULT_REACTION_ACTIVE':      {'FAULT': ControlwordStateCommands.FAULT_RESET},
+    'FAULT':                      {'SWITCH_ON_DISABLED': ControlwordStateCommands.FAULT_RESET}
     }
 
 @dataclass(frozen=True)
@@ -129,9 +189,20 @@ class EPOS4Obj:
 @dataclass(frozen=True)
 class EPOS4Registers:
     """Object dictionary containing the same information as the Firmware Specification guide
-    for the EPOS4 Micro. See section 6.2 for more details"""
+    for the EPOS4 Micro. See section 6.2 for more details
 
+    See https://docs.python.org/3/library/struct.html
+    I uint32
+    i int32
+    B uchar8
+    H uint16
+    Q uint64
+    b char8
+
+
+    """
     ERROR_REGISTER = EPOS4Obj(0x1001, 0x00, 'B', 8) # 6.2.2
+    NODE_ID = EPOS4Obj(0x2000, 0x0, 'B', 8)
     ERROR_CODE = EPOS4Obj(0x603F, 0x00, 'H', 16) # 6.2.2
     SERIAL_NUMBER = EPOS4Obj(0x1018, 0x04, 'I', 32) # 6.2.11.4
     DIAGNOSIS_HISTORY_NEWEST_MESSAGE = EPOS4Obj(0x10F3, 0x02, 'B', 8) # 6.2.13.2
@@ -170,7 +241,6 @@ class EPOS4Registers:
     SERIAL_NUMBER_COMPLETE = EPOS4Obj(0x2100, 0x01, 'Q', 64)
     CURRENT_CONTROLLER_P_GAIN = EPOS4Obj(0x30A0, 0x01, 'I', 32) # 6.2.61
     CURRENT_CONTROLLER_I_GAIN = EPOS4Obj(0x30A0, 0x02, 'I', 32) # 6.2.62
-    HOME_OFFSET_MOVE_DISTANCE = EPOS4Obj(0x30B1, 0x00, 'i', 32) # 6.2.67
     DIGITAL_INPUT_CONFIGURATION_DGIN_1 = EPOS4Obj(0x3142, 0x01, 'B', 8) # 6.2.75.1
     DIGITAL_INPUT_CONFIGURATION_DGIN_2 = EPOS4Obj(0x3142, 0x02, 'B', 8) # 6.2.75.1
     DIGITAL_INPUT_CONFIGURATION_DGIN_3 = EPOS4Obj(0x3142, 0x03, 'B', 8) # 6.2.75.1
@@ -184,7 +254,8 @@ class EPOS4Registers:
     VELOCITY_DEMAND_VALUE = EPOS4Obj(0x606B, 0x00, 'i', 32)  # 6.2.10
     TORQUE_ACTUAL_VALUE = EPOS4Obj(0x6077, 0x00, 'H', 16) # 6.2.109# 9
     TARGET_POSITION = EPOS4Obj(0x607A, 0x00, 'i', 32) # 6.2.113
-    PROFILE_VELOCITY = EPOS4Obj(0x6081, 0x00, 'i', 32) # 6.2.118
+    PROFILE_VELOCITY = EPOS4Obj(0x6081, 0x00, 'I', 32) # 6.2.118
+    TARGET_VELOCITY = EPOS4Obj(0x60FF, 0x00, 'i', 32) # 6.2.147
     PROFILE_ACCELERATION = EPOS4Obj(0x6083, 0x00, 'i', 32) # 6.2.119
     PROFILE_DECELERATION = EPOS4Obj(0x6084, 0x00, 'i', 32) # 6.2.120
     FOLLOWING_ERROR_ACTUAL_VALUE = EPOS4Obj(0x60F4, 0x00, 'i', 32) # 6.2.144
@@ -192,8 +263,20 @@ class EPOS4Registers:
     PHYSICAL_OUTPUTS = EPOS4Obj(0x60FE, 0x01, 'i', 32) # 6.2.146.1   % SEARCH MARKER: Digital outputs
     NBR_OF_CONFIGURED_MODULES = EPOS4Obj(0xf030, 0x0, 'B', 8) # 6.2.151.1 % SEARCH MARKER: Modular device profile
     MODULE_1 = EPOS4Obj(0xf030, 0x1, 'I', 32) # 6.2.151.2 % SEARCH MARKER: Modular device profile
-    TARGET_VELOCITY = EPOS4Obj(0x60FF, 0x00, 'I', 32) # 6.2.147
-
+    PROGRAM_CONTROL = EPOS4Obj(0x1f51, 0x01, 'B', 8)  # 6.2.35
+    SSI_POSITION_RAW_VALUE = EPOS4Obj(0x3012,0x09,'I',32)  #6.2.55
+    HOMING_METHOD = EPOS4Obj(0x6098, 0x0, 'b', 8)
+    HOME_POSITION = EPOS4Obj(0x30B0, 0x0, 'i', 32)
+    HOMING_ACCELERATION = EPOS4Obj(0x609A, 0x0, 'i', 32)
+    FOLLOWING_ERROR_WINDOW = EPOS4Obj(0x6065, 0x0, 'I', 32)
+    HOME_OFFSET_MOVE_DISTANCE = EPOS4Obj(0x30B1, 0x00, 'i', 32) # 6.2.67
+    QUICK_STOP_DECELERATION = EPOS4Obj(0x6085, 0x0, 'I', 32)
+    SPEED_FOR_ZERO_SEARCH = EPOS4Obj(0x6099, 0x2, 'I', 32)
+    SPEED_FOR_SWITCH_SEARCH = EPOS4Obj(0x6099, 0x1, 'I', 32)
+    MAX_PROFILE_VELOCITY = EPOS4Obj(0x607F, 0x0, 'I', 32)
+    HOMING_CURRENT_THRESHOLD = EPOS4Obj(0x30B2, 0, 'H', 16)  # unsigned magnitude
+    CURRENT_ACTUAL_VALUE_AVERAGED = EPOS4Obj(0x30D1, 0x01, 'i', 32)  # signed indicating direction
+    CURRENT_ACTUAL_VALUE_INSTANT = EPOS4Obj(0x30D1, 0x02, 'i', 32)
 
 def getInfo(identifier: str | int, ObjDict) -> None:
     """Search for a command and print all information associated with a particular command name or index.
