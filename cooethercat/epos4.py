@@ -55,22 +55,6 @@ class EPOS4Motor:
     def _statusword(self):
         return self.pdo_input[self._statuswordPDOIndex]
 
-    # def _set_controlword(self, value: int):
-    #     getLogger(__name__).debug(f"Setting controlword (index {self._controlwordPDOIndex}) to {value} in rxdata (from {self.RxData}).")
-    #     self.RxData[self._controlwordPDOIndex] = value
-    #
-    # def _set_target_position(self, value: int):
-    #     self.RxData[self._controlwordPDOIndex] = ControlWord.START.value
-    #     self.RxData[1] = value
-    #
-    # def _set_profile_acceleration(self, value: int):
-    #     self.RxData[self._controlwordPDOIndex] = ControlWord.START.value
-    #     self.RxData[2] = value
-
-    def identify(self, enable=True):
-        """Enable or disable identification"""
-        raise NotImplementedError
-
     def check_errors(self):
         print(f"Node {self.node} diagnostics:")
         resp = self._sdo_read(self.object_dict.DIAGNOSIS_HISTORY_DIAGNOSIS_MESSAGE_1)
@@ -84,14 +68,23 @@ class EPOS4Motor:
         resp = self._sdo_read(self.object_dict.DIAGNOSIS_HISTORY_DIAGNOSIS_MESSAGE_5)
         print(" Diagnosis message 5: ", resp)
 
+    @property
+    def fault_state(self):
+        return StatuswordBits.FAULT in StatuswordRegister(self._sdo_read(self.object_dict.STATUSWORD))
+
     def clear_faults(self):
         self._sdo_write(self.object_dict.CONTROLWORD, 1 << ControlwordBits.FAULT_RESET.value)
 
     def wait_for_statusword(self, state:StatuswordStates|Iterable[StatuswordBits]|StatuswordBits, any_bit:bool=True,
-                            timeout:float=1):
+                            timeout:float=1, verbose:bool=False, monitor:EPOS4Obj|tuple[EPOS4Obj]=None):
         """Wait for a Statusword State or any or all of the specified bits to be set"""
         if isinstance(state, StatuswordBits):
             state = (state,)
+
+        if isinstance(monitor, EPOS4Obj):
+            monitor = (monitor,)
+        elif monitor is None:
+            monitor = tuple()
 
         collapse_func = any if any_bit else all
 
@@ -100,9 +93,16 @@ class EPOS4Motor:
             statusword = StatuswordRegister(self._sdo_read(self.object_dict.STATUSWORD))
             if isinstance(state, StatuswordStates):
                 if statusword.state == state:
+                    getLogger(__name__).info(f'Finished waiting for {statusword}')
                     return statusword
             elif collapse_func(bit in statusword for bit in state):
+                getLogger(__name__).info(f'Finished waiting for {state}: {statusword}')
                 return statusword
+            for m in monitor:
+                getLogger(__name__).debug(f'  {m}={self._sdo_read(m)}')
+            if verbose:
+                getLogger(__name__).info(f'{self.debug_info_sdo}')
+            time.sleep(self.STATUSWORD_DELAY_TIME)
             if time.time() - start_time > timeout:
                 raise TimeoutError(f'Timeout waiting for state {state}. Current statusword: {statusword}')
 
@@ -125,7 +125,7 @@ class EPOS4Motor:
         self._sdo_write(self.object_dict.PROGRAM_CONTROL, ProgramControlReg.INITIATE_DEVICE_RESET.value)
         return self._sdo_read(self.object_dict.PROGRAM_CONTROL)
 
-    def home_via_method(self, method, timeout=10):
+    def home_via_method(self, method, timeout=10, current_threshold:int=300, monitor:EPOS4Obj=None):
         #make sure we are shutdown
         self._sdo_write(self.object_dict.CONTROLWORD, ControlwordStateCommands.SHUTDOWN)
         time.sleep(self.CONTROLWORD_DELAY_TIME)  # Needed before continuing or checking statusword
@@ -141,7 +141,7 @@ class EPOS4Motor:
 
         home_pos = 0
         offset_distance = 100  #move away from limit for neg direction
-        current_threshold = 200  # threshold is in absolute value
+        current_threshold = current_threshold  # threshold is in absolute value
 
         if method in (HomingMethods.CURRENT_THRESHOLD_POS_SPEED_AND_INDEX, HomingMethods.LIMIT_SWITCH_POSITIVE,
             HomingMethods.HOME_SWITCH_POSITIVE_SPEED, HomingMethods.INDEX_POSITIVE_SPEED):
@@ -172,7 +172,8 @@ class EPOS4Motor:
         self._sdo_write(self.object_dict.CONTROLWORD, ControlWord.COMMAND_START_HOMING)
         time.sleep(self.CONTROLWORD_DELAY_TIME)  # Needed before continuing or checking statusword
         statusword = self.wait_for_statusword((StatuswordBits.FAULT, StatuswordBits.FAULT.HOMING_ERROR,
-                                                    StatuswordBits.FAULT.HOMING_ATTAINED), timeout=timeout)
+                                                    StatuswordBits.FAULT.HOMING_ATTAINED), timeout=timeout,
+                                              monitor=monitor)
 
         if not StatuswordBits.HOMING_ATTAINED in statusword.bits_set:
             msg = f'Homing failed on {self.node} via {method}. Statusword: {statusword}, shutting down drive.'
@@ -268,45 +269,32 @@ class EPOS4Motor:
         # if StatuswordBits.FAULT in statusword.bits_set:
         #     raise RuntimeError(f'Fault on {self.node} while moving to position {position}.')
 
-        getLogger(__name__).info(f'Moving {self.node} to {position}.')
-
-    def get_info(self):
-        """Returns key information about this slave."""
-        return {
-            "node": self.node,
-            "networkState": self._get_network_state(),
-            "state": self.get_device_state(),
-            "objectDictionary": self.object_dict,
-            "currentRxPDOMap": self.currentRxPDOMap,
-            "currentTxPDOMap": self.currentTxPDOMap,
-        }
+        to_by = 'to' if absolute else 'by'
+        getLogger(__name__).info(f'Moving {self.node} {to_by} {position}.')
 
     @property
-    def position(self):
+    def position_pdo(self):
         return self.pdo_input[1]
 
     @property
-    def velocity(self):
+    def velocity_pdo(self):
         return self.pdo_input[2]
 
     @property
-    def moving(self):
+    def moving_pdo(self):
         #TODO is merely be target position attained. it might be unattained but not moving for other reasons
         return not bool((self.pdo_input[self._statuswordPDOIndex] >> StatuswordBits.TARGET_REACHED.value) & 0b1)
 
     @property
-    def following_error(self):
+    def following_error_pdo(self):
         return self.pdo_input[3]
 
     @property
-    def device_state(self):
-        try:
-            return StatuswordStates(self.pdo_input[self._statuswordPDOIndex] & STATUSWORD_STATE_BITMASK)
-        except ValueError:
-            return f"Unknown mode: ({self.pdo_input[self._statuswordPDOIndex] & STATUSWORD_STATE_BITMASK})"
+    def statusword_pdo(self) -> StatuswordRegister:
+        return StatuswordRegister(self.pdo_input[self._statuswordPDOIndex])
 
     @property
-    def operation_mode(self):
+    def operation_mode_pdo(self):
         return OperatingModes(self.pdo_input[self._modesOfOperationDisplayPDOIndex])
 
     @property
@@ -316,7 +304,9 @@ class EPOS4Motor:
     @property
     def debug_info_sdo(self):
         ec = self._sdo_read(self.object_dict.ERROR_CODE)
-        return {'position':self._sdo_read(self.object_dict.POSITION_ACTUAL_VALUE),
+        return {'node': self.node,
+                "network_state": self._get_network_state(),
+                'position':self._sdo_read(self.object_dict.POSITION_ACTUAL_VALUE),
                 'target_position': self._sdo_read(self.object_dict.TARGET_POSITION),
                 'error_reg':self._sdo_read(self.object_dict.ERROR_REGISTER),
                 'error_code': EPOS4_ERRORS.get(ec, f'Unknown error code ({ec})'),
@@ -328,6 +318,8 @@ class EPOS4Motor:
                 'torque_actual' : self._sdo_read(self.object_dict.TORQUE_ACTUAL_VALUE),
                 'controlword': self._sdo_read(self.object_dict.CONTROLWORD),
                 'statusword': StatuswordRegister(self._sdo_read(self.object_dict.STATUSWORD)),
+                "current_rx_pdo_map": self.currentRxPDOMap,
+                "current_tx_pdo_map": self.currentTxPDOMap,
                 }
 
     ### State methods ###

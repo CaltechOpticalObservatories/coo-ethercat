@@ -81,15 +81,14 @@ class EPOS4Bus:
         slave_info = []
 
         for slave in self.slaves:
-            slave_data = slave.get_info()
+            slave_data = slave.debug_info_sdo
             slave_info.append(slave_data)
 
         record = ("  Node: {node}\n" +
-                  "  NetState: {networkState}\n" +
+                  "  NetState: {network_state}\n" +
                   "  DevState: {state}\n" +
-                  "  Object Dictionary: {objectDictionary}\n" +
-                  "  Current Rx PDO Map: {currentRxPDOMap}\n" +
-                  "  Current Tx PDO Map: {currentTxPDOMap}\n" +
+                  "  Current Rx PDO Map: {current_rx_pdo_map}\n" +
+                  "  Current Tx PDO Map: {current_txx_pdo_map}\n" +
                   ("-" * 40))
 
         if as_string:
@@ -144,8 +143,7 @@ class EPOS4Bus:
                     if working_counter not in (72, 0):
                         getLogger(__name__).warning(f"PDO send/receive cycle sent {sent_counter}, "
                                                     f"got working counter {working_counter} ({working_counter/3}*3)")
-
-                    time.sleep(max(self._PDO_CYCLE_TIME - (time.perf_counter_ns() - start) * 1e-9, 0))
+                time.sleep(max(self._PDO_CYCLE_TIME - (time.perf_counter_ns() - start) * 1e-9, 0))
 
         self._pdo_thread = threading.Thread(name='Ethercat PDO thread', target=pdo_sender, daemon=True)
 

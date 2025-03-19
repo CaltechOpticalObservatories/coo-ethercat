@@ -86,7 +86,7 @@ class StatuswordBits(Enum):
 class StatuswordRegister:
     STATUSWORD_STATE_BITMASK = 0b1101111
 
-    def __init__(self, statusword:int|StatuswordStates=None, bits: tuple[StatuswordBits] = None):
+    def __init__(self, statusword:int|StatuswordStates=None, bits: tuple[StatuswordBits,...] = None):
         """
         Initialize the StatuswordRegister instance with either a statusword (integer or StatuswordStates)
         or a set of StatuswordBits.
@@ -111,15 +111,12 @@ class StatuswordRegister:
             raise ValueError('statusword or bits must be set')
 
     @property
-    def bits_set(self):
+    def bits_set(self)->tuple[StatuswordBits,...]:
         return tuple(bit for bit in StatuswordBits if (1<<bit.value) & self.statusword)
 
     @property
-    def state(self):
-        try:
-            return StatuswordStates(self.statusword & self.STATUSWORD_STATE_BITMASK)
-        except ValueError:
-            return f'Undefined StatuswordState (hex(self.statusword)):'
+    def state(self)->StatuswordStates:
+        return StatuswordStates(self.statusword & self.STATUSWORD_STATE_BITMASK)
 
     def __contains__(self, item):
         if not isinstance(item, StatuswordBits):
@@ -205,6 +202,7 @@ class EPOS4Registers:
 
     """
     ERROR_REGISTER = EPOS4Obj(0x1001, 0x00, 'B', 8) # 6.2.2
+    NODE_ID = EPOS4Obj(0x2000, 0x0, 'B', 8)
     ERROR_CODE = EPOS4Obj(0x603F, 0x00, 'H', 16) # 6.2.2
     SERIAL_NUMBER = EPOS4Obj(0x1018, 0x04, 'I', 32) # 6.2.11.4
     DIAGNOSIS_HISTORY_NEWEST_MESSAGE = EPOS4Obj(0x10F3, 0x02, 'B', 8) # 6.2.13.2
@@ -278,6 +276,7 @@ class EPOS4Registers:
     MAX_PROFILE_VELOCITY = EPOS4Obj(0x607F, 0x0, 'I', 32)
     HOMING_CURRENT_THRESHOLD = EPOS4Obj(0x30B2, 0, 'H', 16)  # unsigned magnitude
     CURRENT_ACTUAL_VALUE_AVERAGED = EPOS4Obj(0x30D1, 0x01, 'i', 32)  # signed indicating direction
+    CURRENT_ACTUAL_VALUE_INSTANT = EPOS4Obj(0x30D1, 0x02, 'i', 32)
 
 def getInfo(identifier: str | int, ObjDict) -> None:
     """Search for a command and print all information associated with a particular command name or index.
