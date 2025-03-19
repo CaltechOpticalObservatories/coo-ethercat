@@ -9,9 +9,7 @@ import netifaces
 from threading import RLock
 import functools
 
-from .helpers import STATUSWORD_STATE_BITMASK
-
-#TODO I'm increasingly of the opintion that having both EthercatBus and EPOS4Bus does not make sense and is a ppoor strategy
+#TODO I'm increasingly of the opinion that having both EthercatBus and EPOS4Bus does not make sense and is a poor strategy
 class EthercatBus:
 
     @staticmethod
@@ -48,17 +46,17 @@ class EthercatBus:
 
     ### SDO methods ###
     @bus_locked
-    def SDORead(self, slaveInstance, address: Iterable):
+    def sdo_read(self, instance, address: Iterable):
         """Reads a Service Data Object (SDO) from a slave."""
-        slave = self.pysoem_master.slaves[slaveInstance.node]
+        slave = self.pysoem_master.slaves[instance.node]
         index, subIndex, packFormat, *_ = address
         response = struct.unpack('<' + packFormat, slave.sdo_read(index, subIndex))
         return response[0] if len(response) == 1 else response
 
     @bus_locked
-    def SDOWrite(self, slaveInstance, address: Iterable, data, completeAccess=False):
+    def sdo_write(self, instance, address: Iterable, data, completeAccess=False):
         """Writes a Service Data Object (SDO) to a slave."""
-        slave = self.pysoem_master.slaves[slaveInstance.node]
+        slave = self.pysoem_master.slaves[instance.node]
         index, subIndex, packFormat, *_ = address
         slave.sdo_write(index, subIndex, struct.pack('<' + packFormat, data), ca=completeAccess)
 
@@ -96,20 +94,20 @@ class EthercatBus:
         return string if as_string else data
 
     @bus_locked
-    def configureSlaves(self):
+    def configure_slaves(self):
         """Configures the slaves"""
         self.pysoem_master.config_map()
 
     @bus_locked
-    def setWatchDog(self, slaveInstance, timeout: float):
+    def set_watchdog(self, instance, timeout: float):
         """Sets the watchdog timeout for the slave.
         Inputs:
             slave: high level master.py.slave instance
             timeout: float
                 The timeout in milliseconds
         """
-        self.pysoem_master.slaves[slaveInstance.node].set_watchdog('pdi', timeout)
-        self.pysoem_master.slaves[slaveInstance.node].set_watchdog('processdata', timeout)
+        self.pysoem_master.slaves[instance.node].set_watchdog('pdi', timeout)
+        self.pysoem_master.slaves[instance.node].set_watchdog('processdata', timeout)
 
     ### Network state methods ###
     # 1. Apply to all slaves
@@ -132,33 +130,24 @@ class EthercatBus:
         self.pysoem_master.write_state()
 
     # 2. Apply to individual slaves
-    def assertNetworkState(self, slaveInstance, state: int|Enum) -> bool:
+    def assertNetworkState(self, instance, state: int|Enum) -> bool:
         state = state.value if isinstance(state, Enum) else state
-        return self.getNetworkState(slaveInstance) == state
+        return self.getNetworkState(instance) == state
 
     @bus_locked
-    def getNetworkState(self, slaveInstance):
+    def getNetworkState(self, instance):
         self.pysoem_master.read_state()  # Cursed, the slaves can't refresh their own state
-        return self.pysoem_master.slaves[slaveInstance.node].state
+        return self.pysoem_master.slaves[instance.node].state
 
     @bus_locked
-    def setNetworkState(self, slaveInstance, state: int | Enum):
+    def setNetworkState(self, instance, state: int | Enum):
         state = state.value if isinstance(state, Enum) else state
-        self.pysoem_master.slaves[slaveInstance.node].state = state
-        self.pysoem_master.slaves[slaveInstance.node].write_state()
+        self.pysoem_master.slaves[instance.node].state = state
+        self.pysoem_master.slaves[instance.node].write_state()
 
-    ### PDO methods ###
-    @bus_locked
-    def sendProcessData(self):
-        self.pysoem_master.send_processdata()
-
-    @bus_locked
-    def receiveProcessData(self):
-        self.pysoem_master.receive_processdata(timeout=2000)
-
-    def addPDOMessage(self, slaveInstance, packFormat, data):
+    def addPDOMessage(self, instance, packFormat, data):
         """Adds a PDO message to the slave's PDO buffer."""
-        self.pysoem_master.slaves[slaveInstance.node].output = struct.pack('<' + packFormat, *data)
+        self.pysoem_master.slaves[instance.node].output = struct.pack('<' + packFormat, *data)
 
     def __del__(self):
         self.pysoem_master.close()

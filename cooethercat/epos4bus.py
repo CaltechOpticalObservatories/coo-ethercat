@@ -67,7 +67,7 @@ class EPOS4Bus:
         if not self.assert_device_states(StatuswordStates.SWITCH_ON_DISABLED):
             self.set_device_states(StatuswordStates.SWITCH_ON_DISABLED)
 
-        self._bus.configureSlaves()
+        self._bus.configure_slaves()
 
         if not self.assert_network_state(NetworkManagementStates.SAFE_OP):
             raise RuntimeError("Failed to transition to Safe-OP state after configuring slaves.")
@@ -184,7 +184,7 @@ class EPOS4Bus:
     def _send_pdo(self, sleep=True):
         sent = 0
         with self._bus.lock:
-            self._bus.sendProcessData()
+            self._bus.pysoem_master.send_processdata()
             for s in self.slaves:
                 if s.pdo_message_pending.is_set():
                     getLogger(__name__).info(f'Sent pending PDO messaage for slave {s.node}')
@@ -211,7 +211,7 @@ class EPOS4Bus:
 
     def _send_receive_pdo(self, sleep=True, timeout=2000):
         with self._bus.lock:
-            self._send_pdo(sleep=sleep)
+            self._send_pdo(sleep=False)
             self._receive_pdo(sleep=sleep, timeout=timeout)
 
     @pdo_mode_only

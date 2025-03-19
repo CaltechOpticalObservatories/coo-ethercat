@@ -4,7 +4,7 @@ from logging import getLogger
 from dataclasses import dataclass, astuple
 
 
-STATUSWORD_STATE_BITMASK = 0b1101111
+
 
 class IncorrectState(Exception):
     pass
@@ -27,6 +27,7 @@ class ControlWord(Enum):
     COMMAND_START_HOMING = 0x001F
     COMMAND_HALT_HOMING = 0x011F
     COMMAND_ABSOLUTE_START_IMMEDIATELY = 0x003F
+    COMMAND_RELATIVE_START_IMMEDIATELY = 0x007F
 
 class ControlwordStateCommands(Enum):
     SHUTDOWN = 6
@@ -55,6 +56,7 @@ class ProgramControlReg(Enum):
 
 
 #TODO Controlword and statusword to a register class!!!
+STATUSWORD_STATE_BITMASK = 0b1101111
 class StatuswordStates(Enum):
     NOT_READY_TO_SWITCH_ON = 0
     SWITCH_ON_DISABLED = 0b1000000
@@ -64,23 +66,6 @@ class StatuswordStates(Enum):
     QUICK_STOP_ACTIVE = 0b0000111
     FAULT_REACTION_ACTIVE = 0b0001111
     FAULT = 0b0001000
-
-class StatuswordRegister:
-    STATUSWORD_STATE_BITMASK = 0b1101111
-
-    def __init__(self, statusword):
-        self.statusword = statusword
-
-    @property
-    def bits_set(self):
-        return tuple(bit for bit in StatuswordBits if (1<<bit.value) & self.statusword)
-
-    @property
-    def state(self):
-        try:
-            return StatuswordStates(self.statusword & self.STATUSWORD_STATE_BITMASK)
-        except ValueError:
-            return f'Undefined StatuswordState (hex(self.statusword)):'
 
 class StatuswordBits(Enum):
     READY_TO_SWITCH_ON = 0
@@ -97,6 +82,52 @@ class StatuswordBits(Enum):
     HOMING_ATTAINED = 12
     HOMING_ERROR = 13
     POSITION_REFERENCE_TO_HOME = 15
+
+class StatuswordRegister:
+    STATUSWORD_STATE_BITMASK = 0b1101111
+
+    def __init__(self, statusword:int|StatuswordStates=None, bits: tuple[StatuswordBits] = None):
+        """
+        Initialize the StatuswordRegister instance with either a statusword (integer or StatuswordStates)
+        or a set of StatuswordBits.
+        
+        Args:
+            statusword (int, StatuswordStates, optional): The raw statusword value as an integer. Defaults to None.
+            bits (tuple[StatuswordBits], optional): A tuple of StatuswordBits to set in the statusword. 
+                Each bit represents a specific status in the statusword. Defaults to None.
+        
+        Raises:
+            ValueError: If an element in 'bits' is not an instance of StatuswordBits or if
+            neither 'statusword' nor 'bits' is provided.
+        """
+        self.statusword = statusword.value if isinstance(statusword, StatuswordStates) else statusword
+        if bits is not None:
+            self.statusword = 0
+            for bit in bits:
+                if bit not in StatuswordBits:
+                    raise ValueError(f'bit must be a StatuswordBits, not {bit}')
+                self.statusword |= 1 << bit.value
+        if self.statusword is None:
+            raise ValueError('statusword or bits must be set')
+
+    @property
+    def bits_set(self):
+        return tuple(bit for bit in StatuswordBits if (1<<bit.value) & self.statusword)
+
+    @property
+    def state(self):
+        try:
+            return StatuswordStates(self.statusword & self.STATUSWORD_STATE_BITMASK)
+        except ValueError:
+            return f'Undefined StatuswordState (hex(self.statusword)):'
+
+    def __contains__(self, item):
+        if not isinstance(item, StatuswordBits):
+            raise ValueError('item must be a StatuswordBits Enum')
+        return self.statusword & (1<<item.value)
+
+    def __repr__(self):
+        return f'{self.__class__.__name__}(statusword={bin(self.statusword)}, bits={self.bits_set})'
 
 class NetworkManagementStates(Enum):
     NONE = 0x00
@@ -225,7 +256,7 @@ class EPOS4Registers:
     VELOCITY_DEMAND_VALUE = EPOS4Obj(0x606B, 0x00, 'i', 32)  # 6.2.10
     TORQUE_ACTUAL_VALUE = EPOS4Obj(0x6077, 0x00, 'H', 16) # 6.2.109# 9
     TARGET_POSITION = EPOS4Obj(0x607A, 0x00, 'i', 32) # 6.2.113
-    PROFILE_VELOCITY = EPOS4Obj(0x6081, 0x00, 'i', 32) # 6.2.118
+    PROFILE_VELOCITY = EPOS4Obj(0x6081, 0x00, 'I', 32) # 6.2.118
     TARGET_VELOCITY = EPOS4Obj(0x60FF, 0x00, 'i', 32) # 6.2.147
     PROFILE_ACCELERATION = EPOS4Obj(0x6083, 0x00, 'i', 32) # 6.2.119
     PROFILE_DECELERATION = EPOS4Obj(0x6084, 0x00, 'i', 32) # 6.2.120
@@ -245,8 +276,8 @@ class EPOS4Registers:
     SPEED_FOR_ZERO_SEARCH = EPOS4Obj(0x6099, 0x2, 'I', 32)
     SPEED_FOR_SWITCH_SEARCH = EPOS4Obj(0x6099, 0x1, 'I', 32)
     MAX_PROFILE_VELOCITY = EPOS4Obj(0x607F, 0x0, 'I', 32)
-    HOMING_CURRENT_THRESHOLD = EPOS4Obj(0x30B2, 0, 'H', 16)
-    CURRENT_ACTUAL_VALUE_AVERAGED = EPOS4Obj(0x30D1, 0x01, 'i', 32)
+    HOMING_CURRENT_THRESHOLD = EPOS4Obj(0x30B2, 0, 'H', 16)  # unsigned magnitude
+    CURRENT_ACTUAL_VALUE_AVERAGED = EPOS4Obj(0x30D1, 0x01, 'i', 32)  # signed indicating direction
 
 def getInfo(identifier: str | int, ObjDict) -> None:
     """Search for a command and print all information associated with a particular command name or index.
