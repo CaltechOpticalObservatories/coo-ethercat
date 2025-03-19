@@ -5,7 +5,6 @@ import pysoem
 import struct
 from enum import Enum
 from logging import getLogger
-import netifaces
 from threading import RLock
 import functools
 
@@ -30,14 +29,14 @@ class EthercatBus:
     def open(self):
         """Opens the network interface with the given interface name."""
         try:
-            if self.ifname in netifaces.interfaces():
-                address_families = netifaces.ifaddresses(self.ifname)
-                if not netifaces.AF_LINK in address_families:
-                    raise RuntimeError(f"Interface {self.ifname} is not UP.")
-            else:
-                raise RuntimeError(f"Interface {self.ifname} not found.")
-        except Exception as e:
-            raise e
+            with open(f'/sys/class/net/{self.ifname}/operstate', 'r') as f:
+                state = f.read().strip().lower()
+                if 'up' != state:
+                    raise RuntimeError(f"Interface {self.ifname} is not UP ({state}). "
+                                       f"Consider running 'sudo ip link set dev {self.ifname} up'")
+        except FileNotFoundError:
+            raise RuntimeError(f"Interface {self.ifname} operating state not found "
+                               f"at /sys/class/net/{self.ifname}/operstate")
         self.pysoem_master.open(self.ifname)  # pysoem doesn't return anything, so we can't check if it was successful
 
     def close(self):
