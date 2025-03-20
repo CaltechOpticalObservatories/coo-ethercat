@@ -128,6 +128,8 @@ class EPOS4Bus:
     ### PDO Methods ###
     def enable_pdo(self, shutdown_first=True):
         if self._pdo_thread is not None:
+            if self._pdo_thread.is_alive():
+                return
             raise RuntimeError('PDO thread must be terminated and joined')
 
         getLogger(__name__).debug("Enabling PDO")
@@ -368,7 +370,7 @@ class EPOS4Bus:
             slave._create_pdo_message(data)
 
     @pdo_mode_only
-    def move_to(self, positions: int | dict[int], acceleration=10000, deceleration=10000, speed=4000, blocking=True,
+    def move_to(self, positions: int | dict[int], acceleration=10000, deceleration=10000, speed=7000, blocking=True,
                 verbose=False):
         """Send slaves to the given positions based on their node IDs."""
 
