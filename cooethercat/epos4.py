@@ -125,7 +125,30 @@ class EPOS4Motor:
         self._sdo_write(self.object_dict.PROGRAM_CONTROL, ProgramControlReg.INITIATE_DEVICE_RESET.value)
         return self._sdo_read(self.object_dict.PROGRAM_CONTROL)
 
-    def home_via_method(self, method, timeout=10, current_threshold:int=300, monitor:EPOS4Obj=None):
+    def home_via_method(self, method: HomingMethods, timeout=10, position_source: PositionSource=None, position:int=None,
+                        current_threshold:int=300, monitor:EPOS4Obj=None, setup_only=False):
+
+        if method==HomingMethods.ACTUAL_POSITION:
+            if position_source is None:
+                raise ValueError("Must provide position_source for ACTUAL_POSITION homing method.")
+
+            if position_source==PositionSource.SSI:
+                pos = self._sdo_read(self.object_dict.SSI_POSITION_RAW_VALUE)
+                getLogger(__name__).info(f'Read an SSI position of {pos} for {self.node}, will home here.')
+            elif position_source==PositionSource.USER:
+                if position is None or abs(position) > 0x0FFFFFFF:
+                    raise ValueError("Must provide position less than 2^31 (signed int32) to home "
+                                     "using USER position source.")
+                assert position is not None, "Must provide position to home using USER position source."
+                assert abs(position) <= 0x0FFFFFFF, "Position must be less than 2^31 (signed int32)."
+                pos = position
+            elif position_source==PositionSource.CURRENT:
+                pos = 0
+            else:
+                raise NotImplementedError
+        else:
+            pos = 0
+
         #make sure we are shutdown
         self._sdo_write(self.object_dict.CONTROLWORD, ControlwordStateCommands.SHUTDOWN)
         time.sleep(self.CONTROLWORD_DELAY_TIME)  # Needed before continuing or checking statusword
@@ -149,6 +172,7 @@ class EPOS4Motor:
         else:
             sign = 1
 
+        self._sdo_write(self.object_dict.HOME_POSITION, pos)
         # self._sdo_write(self.object_dict.FOLLOWING_ERROR_WINDOW, 1000)
         # self._sdo_write(self.object_dict.MAX_PROFILE_VELOCITY, 8000)
         # self._sdo_write(self.object_dict.QUICK_STOP_DECELERATION, 10000)
@@ -158,12 +182,14 @@ class EPOS4Motor:
         self._sdo_write(self.object_dict.HOMING_CURRENT_THRESHOLD, current_threshold)
         self._sdo_write(self.object_dict.HOME_OFFSET_MOVE_DISTANCE, offset_distance*sign)
         self._sdo_write(self.object_dict.HOME_POSITION, home_pos)
-
         self._sdo_write(self.object_dict.HOMING_METHOD, method)
 
-        self._sdo_write(self.object_dict.CONTROLWORD, ControlwordStateCommands.SHUTDOWN)
-        time.sleep(self.CONTROLWORD_DELAY_TIME)  # Needed before continuing or checking statusword
-        self.wait_for_statusword(StatuswordStates.READY_TO_SWITCH_ON, timeout=.5)
+        # self._sdo_write(self.object_dict.CONTROLWORD, ControlwordStateCommands.SHUTDOWN)
+        # time.sleep(self.CONTROLWORD_DELAY_TIME)  # Needed before continuing or checking statusword
+        # self.wait_for_statusword(StatuswordStates.READY_TO_SWITCH_ON, timeout=.5)
+
+        if setup_only:
+            return
 
         self._sdo_write(self.object_dict.CONTROLWORD, ControlwordStateCommands.SWITCH_ON_AND_ENABLE)
         time.sleep(self.CONTROLWORD_DELAY_TIME)  # Needed before continuing or checking statusword
@@ -186,53 +212,6 @@ class EPOS4Motor:
         self._sdo_write(self.object_dict.CONTROLWORD, ControlwordStateCommands.SHUTDOWN)
         time.sleep(self.CONTROLWORD_DELAY_TIME)  # Needed before continuing or checking statusword
         self.wait_for_statusword(StatuswordStates.READY_TO_SWITCH_ON, timeout=.5)
-
-    def home_to_actual_position_sdo(self, position_source: PositionSource, position:int=None, timeout=10):
-        """Home the slave using the current position"""
-        if position_source==PositionSource.SSI:
-            pos = self._sdo_read(self.object_dict.SSI_POSITION_RAW_VALUE)
-            getLogger(__name__).info(f'Read an SSI position of {pos} for {self.node}, will home here.')
-        elif position_source==PositionSource.USER:
-            assert position is not None, "Must provide position to home using USER position source."
-            assert abs(position) <= 0x0FFFFFFF, "Position must be less than 2^31 (signed int32)."
-            pos = position
-        else:
-            pos = self._sdo_read(self.object_dict.POSITION_ACTUAL_VALUE)
-
-        self._sdo_write(self.object_dict.MODES_OF_OPERATION, OperatingModes.HOMING_MODE)
-        tic = time.time()
-        while self._sdo_read(self.object_dict.MODES_OF_OPERATION_DISPLAY) != OperatingModes.HOMING_MODE.value:
-            time.sleep(0.1)
-            if time.time() - tic > timeout:
-                raise TimeoutError(f'Timeout waiting for homing mode on {self.node} via {position_source}.')
-
-        self._sdo_write(self.object_dict.HOME_POSITION, pos)
-        self._sdo_write(self.object_dict.HOMING_METHOD, HomingMethods.ACTUAL_POSITION)
-
-        self._sdo_write(self.object_dict.CONTROLWORD, ControlwordStateCommands.SHUTDOWN)
-        time.sleep(self.CONTROLWORD_DELAY_TIME)  # Needed before continuing or checking statusword
-        self.wait_for_statusword(StatuswordStates.READY_TO_SWITCH_ON, timeout=.5)
-
-        self._sdo_write(self.object_dict.CONTROLWORD, ControlwordStateCommands.SWITCH_ON_AND_ENABLE)
-        time.sleep(self.CONTROLWORD_DELAY_TIME)  # Needed before continuing or checking statusword
-        self.wait_for_statusword(StatuswordStates.OPERATION_ENABLED, timeout=0.5)
-
-        self._sdo_write(self.object_dict.CONTROLWORD, ControlWord.COMMAND_START_HOMING)
-        time.sleep(self.CONTROLWORD_DELAY_TIME)  # Needed before continuing or checking statusword
-        statusword = self.wait_for_statusword((StatuswordBits.FAULT, StatuswordBits.FAULT.HOMING_ERROR,
-                                                    StatuswordBits.FAULT.HOMING_ATTAINED), timeout=timeout)
-
-        if not StatuswordBits.HOMING_ATTAINED in statusword.bits_set:
-            msg = f'Homing failed on {self.node} via {position_source}. Statusword: {bin(statusword)}'
-            getLogger(__name__).error(msg)
-            self._sdo_write(self.object_dict.CONTROLWORD, ControlwordStateCommands.SHUTDOWN)
-            raise RuntimeError(msg)
-
-        self._sdo_write(self.object_dict.CONTROLWORD, ControlwordStateCommands.SHUTDOWN)
-        time.sleep(self.CONTROLWORD_DELAY_TIME)  # Needed before continuing or checking statusword
-        self.wait_for_statusword(StatuswordStates.READY_TO_SWITCH_ON, timeout=.5)
-
-        getLogger(__name__).info(f'Homed {self.node} via {position_source}.')
 
     def profile_position_move_sdo(self, position:int, speed:int, absolute:bool=True):
 

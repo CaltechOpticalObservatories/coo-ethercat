@@ -215,10 +215,10 @@ class EPOS4Bus:
             self._receive_pdo(sleep=sleep, timeout=timeout)
 
     @pdo_mode_only
-    def wait_for_device_states_pdo(self, state: StatuswordStates, timeout=10):
+    def wait_for_device_states_pdo(self, state: StatuswordStates, timeout:float=10):
         """Wait until all slaves are in the desired state. This function will block until the desired state is reached."""
-        start = time.time()
         getLogger(__name__).debug(f'Waiting for {state} with timeout {timeout} in PDO mode.')
+        start = time.time()
         while True:
             if self.assert_device_states_pdo(state):
                 getLogger(__name__).debug(f'Attained {state} in PDO mode.')
@@ -239,7 +239,7 @@ class EPOS4Bus:
             return True
 
     @pdo_mode_only
-    def set_device_states_pdo(self, state: StatuswordStates, timeout=10):
+    def set_device_states_pdo(self, state: StatuswordStates, timeout:float=10):
         """Change the device state of all slaves to the desired state. Will only work if all slaves are in the same start state."""
         #TODO check that this overhauled function actually works now
         if self.assert_device_states_pdo(state):
@@ -261,6 +261,7 @@ class EPOS4Bus:
                     word = seq[s.node].pop(0)
                 except IndexError:
                     del seq[s.node]  #done with device
+                    continue
                 except KeyError:
                     continue
                 s.rx_data[s._controlwordPDOIndex] = word
@@ -368,6 +369,47 @@ class EPOS4Bus:
             data = slave.rx_data
             data[slave._controlwordPDOIndex] = ControlwordStateCommands.QUICK_STOP.value
             slave._create_pdo_message(data)
+
+
+    def home(self, method: HomingMethods, timeout=40, position_source: PositionSource=None, position:int=None,
+             current_threshold:int=300, setup_only=False):
+
+        self.disable_pdo()
+        for s in self.slaves:
+            s.home_via_method(method, position_source=position_source, position=position,
+                              current_threshold=current_threshold, setup_only=True)
+        if not setup_only:
+            self.enable_pdo()
+            self.execute_homing(timeout=timeout)
+
+    @pdo_mode_only
+    def execute_homing(self, timeout=40):
+        self.enable_pdo()
+        self.set_device_states_pdo(StatuswordStates.OPERATION_ENABLED, timeout=.5)
+
+        for slave in self.slaves:
+            data = slave.rx_data
+            data[slave._controlwordPDOIndex] = ControlWord.COMMAND_START_HOMING.value
+            slave._create_pdo_message(data)
+            self.wait_for_pdo_transmit()
+
+        start = time.time()
+        while True:
+            sw = [s.statusword_pdo for s in self.slaves]
+            homed = [StatuswordBits.HOMING_ATTAINED in s for s in sw]
+            errors = [(StatuswordBits.HOMING_ERROR in s or StatuswordBits.FAULT in s) for s in sw]
+            done = [e or h for e,h in zip(errors, homed)]
+
+            if all(done) or (time.time()-start) > timeout:
+                break
+
+        if all(homed):
+            getLogger(__name__).info('All devices have attained home.')
+
+        if any(errors):
+            getLogger(__name__).error('Homed devices have faulted or homing errors.')
+
+        self.set_device_states_pdo(StatuswordStates.READY_TO_SWITCH_ON)
 
     @pdo_mode_only
     def move_to(self, positions: int | dict[int], acceleration=10000, deceleration=10000, speed=7000, blocking=True,
