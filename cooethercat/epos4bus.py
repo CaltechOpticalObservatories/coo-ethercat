@@ -33,6 +33,14 @@ class EPOS4Bus:
         self._pdo_thread = None
         # self._pdo_lock = threading.Lock()
 
+    def initialize(self, id_mapping):
+        # TODO Closing the bus when it isn't open causes very odd behavior but raises no exceptions
+        #  likely due to an issue in pysoem
+        # self.bus.close()
+        self.open()
+        self.initialize_slaves(id_type_map=id_mapping)
+        self.configure_slaves()
+
     def open(self):
         self._bus.open()
 
@@ -51,7 +59,7 @@ class EPOS4Bus:
         for i, instance in enumerate(self._bus.pysoem_master.slaves):
             #TODO if the type can wrap or extend the pysoem cdefslave then we might be able to
             # patch into the underlying library and forgo having two things that are so tightly coupled
-            device = id_type_map[i](self, i, instance.name)
+            device = id_type_map[i](self, i)
             self.slaves.append(device)
             try:
                 instance.config_func = device.config_func  # config func takes a node number

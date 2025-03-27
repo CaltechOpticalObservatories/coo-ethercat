@@ -14,13 +14,13 @@ from .epos4registers import EPOS4_ERRORS
 class EPOS4Motor:
     CONTROLWORD_DELAY_TIME = 0.01
     STATUSWORD_DELAY_TIME = 0.01
+    ADDRESS = EPOS4Registers
 
-    def __init__(self, master: EPOS4Bus, node: int, objectDictionary: str):
+    def __init__(self, master: EPOS4Bus, node: int):
         """Initializes a slave object with the given Finite State Automation and object dictionary.
         
         Args: 
             node (int): The node number of the slave
-            objectDictionary (str): The object dictionary that the slave uses
         
         Notes:
             - This object shouldn't be used directly, it should be created by the master class.
@@ -32,24 +32,19 @@ class EPOS4Motor:
         self.currentRxPDOMap = None
         self.currentTxPDOMap = None
         self.rx_data = None
-        self.object_dict = None
         self.pdo_message_pending = threading.Event()
-
-        match objectDictionary:
-            case "EPOS4":
-                self.object_dict = EPOS4Registers
         
         ### Default Operation Mode PDO Maps ###
-        self.PPMRx = [self.object_dict.CONTROLWORD, self.object_dict.TARGET_POSITION,
-                      self.object_dict.PROFILE_ACCELERATION, self.object_dict.PROFILE_DECELERATION,
-                      self.object_dict.PROFILE_VELOCITY, self.object_dict.MODES_OF_OPERATION,
-                      self.object_dict.PHYSICAL_OUTPUTS]
-        self.PPMTx = [self.object_dict.STATUSWORD, self.object_dict.POSITION_ACTUAL_VALUE, self.object_dict.VELOCITY_ACTUAL_VALUE,
-                      self.object_dict.FOLLOWING_ERROR_ACTUAL_VALUE, self.object_dict.MODES_OF_OPERATION_DISPLAY, self.object_dict.DIGITAL_INPUTS]
+        self.PPMRx = [self.ADDRESS.CONTROLWORD, self.ADDRESS.TARGET_POSITION,
+                      self.ADDRESS.PROFILE_ACCELERATION, self.ADDRESS.PROFILE_DECELERATION,
+                      self.ADDRESS.PROFILE_VELOCITY, self.ADDRESS.MODES_OF_OPERATION,
+                      self.ADDRESS.PHYSICAL_OUTPUTS]
+        self.PPMTx = [self.ADDRESS.STATUSWORD, self.ADDRESS.POSITION_ACTUAL_VALUE, self.ADDRESS.VELOCITY_ACTUAL_VALUE,
+                      self.ADDRESS.FOLLOWING_ERROR_ACTUAL_VALUE, self.ADDRESS.MODES_OF_OPERATION_DISPLAY, self.ADDRESS.DIGITAL_INPUTS]
 
     def __repr__(self):
         """String representation of the slave."""
-        return f"EPOS4Motor(masternode={self.node}, net_state={self._get_network_state()}, dev_state={self.get_device_state()}, objectDictionary={self.object_dict})"
+        return f"EPOS4Motor(masternode={self.node}, net_state={self._get_network_state()}, dev_state={self.get_device_state()})"
 
     @property
     def _statusword(self):
@@ -57,23 +52,23 @@ class EPOS4Motor:
 
     def check_errors(self):
         print(f"Node {self.node} diagnostics:")
-        resp = self._sdo_read(self.object_dict.DIAGNOSIS_HISTORY_DIAGNOSIS_MESSAGE_1)
+        resp = self._sdo_read(self.ADDRESS.DIAGNOSIS_HISTORY_DIAGNOSIS_MESSAGE_1)
         print(" Diagnosis message 1: ", resp)
-        resp = self._sdo_read(self.object_dict.DIAGNOSIS_HISTORY_DIAGNOSIS_MESSAGE_2)
+        resp = self._sdo_read(self.ADDRESS.DIAGNOSIS_HISTORY_DIAGNOSIS_MESSAGE_2)
         print(" Diagnosis message 2: ", resp)
-        resp = self._sdo_read(self.object_dict.DIAGNOSIS_HISTORY_DIAGNOSIS_MESSAGE_3)
+        resp = self._sdo_read(self.ADDRESS.DIAGNOSIS_HISTORY_DIAGNOSIS_MESSAGE_3)
         print(" Diagnosis message 3: ", resp)
-        resp = self._sdo_read(self.object_dict.DIAGNOSIS_HISTORY_DIAGNOSIS_MESSAGE_4)
+        resp = self._sdo_read(self.ADDRESS.DIAGNOSIS_HISTORY_DIAGNOSIS_MESSAGE_4)
         print(" Diagnosis message 4: ", resp)
-        resp = self._sdo_read(self.object_dict.DIAGNOSIS_HISTORY_DIAGNOSIS_MESSAGE_5)
+        resp = self._sdo_read(self.ADDRESS.DIAGNOSIS_HISTORY_DIAGNOSIS_MESSAGE_5)
         print(" Diagnosis message 5: ", resp)
 
     @property
     def fault_state(self):
-        return StatuswordBits.FAULT in StatuswordRegister(self._sdo_read(self.object_dict.STATUSWORD))
+        return StatuswordBits.FAULT in StatuswordRegister(self._sdo_read(self.ADDRESS.STATUSWORD))
 
     def clear_faults(self):
-        self._sdo_write(self.object_dict.CONTROLWORD, 1 << ControlwordBits.FAULT_RESET.value)
+        self._sdo_write(self.ADDRESS.CONTROLWORD, 1 << ControlwordBits.FAULT_RESET.value)
 
     def wait_for_statusword(self, state:StatuswordStates|Iterable[StatuswordBits]|StatuswordBits, any_bit:bool=True,
                             timeout:float=1, verbose:bool=False, monitor:EPOS4Obj|tuple[EPOS4Obj]=None):
@@ -90,7 +85,7 @@ class EPOS4Motor:
 
         start_time = time.time()
         while True:
-            statusword = StatuswordRegister(self._sdo_read(self.object_dict.STATUSWORD))
+            statusword = StatuswordRegister(self._sdo_read(self.ADDRESS.STATUSWORD))
             if isinstance(state, StatuswordStates):
                 if statusword.state == state:
                     getLogger(__name__).info(f'Finished waiting for {statusword}')
@@ -122,8 +117,8 @@ class EPOS4Motor:
         # TODO if this is triggered the broader ecosystem of whats happening will be impacted. Figure out what needs to
         #  be handled and document it or add state management of class, bus, etc.
         getLogger(__name__).info(f"Resetting node {self.node}, reinitialization may be necessary")
-        self._sdo_write(self.object_dict.PROGRAM_CONTROL, ProgramControlReg.INITIATE_DEVICE_RESET.value)
-        return self._sdo_read(self.object_dict.PROGRAM_CONTROL)
+        self._sdo_write(self.ADDRESS.PROGRAM_CONTROL, ProgramControlReg.INITIATE_DEVICE_RESET.value)
+        return self._sdo_read(self.ADDRESS.PROGRAM_CONTROL)
 
     def home_via_method(self, method: HomingMethods, timeout=10, position_source: PositionSource=None, position:int=None,
                         current_threshold:int=300, monitor:EPOS4Obj=None, setup_only=False):
@@ -133,7 +128,7 @@ class EPOS4Motor:
                 raise ValueError("Must provide position_source for ACTUAL_POSITION homing method.")
 
             if position_source==PositionSource.SSI:
-                pos = self._sdo_read(self.object_dict.SSI_POSITION_RAW_VALUE)
+                pos = self._sdo_read(self.ADDRESS.SSI_POSITION_RAW_VALUE)
                 getLogger(__name__).info(f'Read an SSI position of {pos} for {self.node}, will home here.')
             elif position_source==PositionSource.USER:
                 if position is None or abs(position) > 0x0FFFFFFF:
@@ -150,14 +145,14 @@ class EPOS4Motor:
             pos = 0
 
         #make sure we are shutdown
-        self._sdo_write(self.object_dict.CONTROLWORD, ControlwordStateCommands.SHUTDOWN)
+        self._sdo_write(self.ADDRESS.CONTROLWORD, ControlwordStateCommands.SHUTDOWN)
         time.sleep(self.CONTROLWORD_DELAY_TIME)  # Needed before continuing or checking statusword
         self.wait_for_statusword(StatuswordStates.READY_TO_SWITCH_ON, timeout=.5)
 
         # Homing mode
-        self._sdo_write(self.object_dict.MODES_OF_OPERATION, OperatingModes.HOMING_MODE)
+        self._sdo_write(self.ADDRESS.MODES_OF_OPERATION, OperatingModes.HOMING_MODE)
         tic = time.time()
-        while self._sdo_read(self.object_dict.MODES_OF_OPERATION_DISPLAY) != OperatingModes.HOMING_MODE.value:
+        while self._sdo_read(self.ADDRESS.MODES_OF_OPERATION_DISPLAY) != OperatingModes.HOMING_MODE.value:
             time.sleep(0.1)
             if time.time() - tic > .5:
                 raise TimeoutError(f'Timeout waiting for homing mode on {self.node}.')
@@ -172,30 +167,30 @@ class EPOS4Motor:
         else:
             sign = 1
 
-        self._sdo_write(self.object_dict.HOME_POSITION, pos)
-        # self._sdo_write(self.object_dict.FOLLOWING_ERROR_WINDOW, 1000)
-        # self._sdo_write(self.object_dict.MAX_PROFILE_VELOCITY, 8000)
-        # self._sdo_write(self.object_dict.QUICK_STOP_DECELERATION, 10000)
-        self._sdo_write(self.object_dict.HOMING_ACCELERATION, 5000)
-        self._sdo_write(self.object_dict.SPEED_FOR_SWITCH_SEARCH, 4000)
-        self._sdo_write(self.object_dict.SPEED_FOR_ZERO_SEARCH, 50)
-        self._sdo_write(self.object_dict.HOMING_CURRENT_THRESHOLD, current_threshold)
-        self._sdo_write(self.object_dict.HOME_OFFSET_MOVE_DISTANCE, offset_distance*sign)
-        self._sdo_write(self.object_dict.HOME_POSITION, home_pos)
-        self._sdo_write(self.object_dict.HOMING_METHOD, method)
+        self._sdo_write(self.ADDRESS.HOME_POSITION, pos)
+        # self._sdo_write(self.ADDRESS.FOLLOWING_ERROR_WINDOW, 1000)
+        # self._sdo_write(self.ADDRESS.MAX_PROFILE_VELOCITY, 8000)
+        # self._sdo_write(self.ADDRESS.QUICK_STOP_DECELERATION, 10000)
+        self._sdo_write(self.ADDRESS.HOMING_ACCELERATION, 5000)
+        self._sdo_write(self.ADDRESS.SPEED_FOR_SWITCH_SEARCH, 4000)
+        self._sdo_write(self.ADDRESS.SPEED_FOR_ZERO_SEARCH, 50)
+        self._sdo_write(self.ADDRESS.HOMING_CURRENT_THRESHOLD, current_threshold)
+        self._sdo_write(self.ADDRESS.HOME_OFFSET_MOVE_DISTANCE, offset_distance*sign)
+        self._sdo_write(self.ADDRESS.HOME_POSITION, home_pos)
+        self._sdo_write(self.ADDRESS.HOMING_METHOD, method)
 
-        # self._sdo_write(self.object_dict.CONTROLWORD, ControlwordStateCommands.SHUTDOWN)
+        # self._sdo_write(self.ADDRESS.CONTROLWORD, ControlwordStateCommands.SHUTDOWN)
         # time.sleep(self.CONTROLWORD_DELAY_TIME)  # Needed before continuing or checking statusword
         # self.wait_for_statusword(StatuswordStates.READY_TO_SWITCH_ON, timeout=.5)
 
         if setup_only:
             return
 
-        self._sdo_write(self.object_dict.CONTROLWORD, ControlwordStateCommands.SWITCH_ON_AND_ENABLE)
+        self._sdo_write(self.ADDRESS.CONTROLWORD, ControlwordStateCommands.SWITCH_ON_AND_ENABLE)
         time.sleep(self.CONTROLWORD_DELAY_TIME)  # Needed before continuing or checking statusword
         self.wait_for_statusword(StatuswordStates.OPERATION_ENABLED , timeout=.5)
 
-        self._sdo_write(self.object_dict.CONTROLWORD, ControlWord.COMMAND_START_HOMING)
+        self._sdo_write(self.ADDRESS.CONTROLWORD, ControlWord.COMMAND_START_HOMING)
         time.sleep(self.CONTROLWORD_DELAY_TIME)  # Needed before continuing or checking statusword
         statusword = self.wait_for_statusword((StatuswordBits.FAULT, StatuswordBits.FAULT.HOMING_ERROR,
                                                     StatuswordBits.FAULT.HOMING_ATTAINED), timeout=timeout,
@@ -204,45 +199,45 @@ class EPOS4Motor:
         if not StatuswordBits.HOMING_ATTAINED in statusword.bits_set:
             msg = f'Homing failed on {self.node} via {method}. Statusword: {statusword}, shutting down drive.'
             getLogger(__name__).error(msg)
-            self._sdo_write(self.object_dict.CONTROLWORD, ControlwordStateCommands.SHUTDOWN)
+            self._sdo_write(self.ADDRESS.CONTROLWORD, ControlwordStateCommands.SHUTDOWN)
             raise RuntimeError(msg)
 
         getLogger(__name__).info(f'Homed {self.node} via {method}.')
 
-        self._sdo_write(self.object_dict.CONTROLWORD, ControlwordStateCommands.SHUTDOWN)
+        self._sdo_write(self.ADDRESS.CONTROLWORD, ControlwordStateCommands.SHUTDOWN)
         time.sleep(self.CONTROLWORD_DELAY_TIME)  # Needed before continuing or checking statusword
         self.wait_for_statusword(StatuswordStates.READY_TO_SWITCH_ON, timeout=.5)
 
     def profile_position_move_sdo(self, position:int, speed:int, absolute:bool=True):
 
-        self._sdo_write(self.object_dict.MODES_OF_OPERATION, OperatingModes.PROFILE_POSITION_MODE)
+        self._sdo_write(self.ADDRESS.MODES_OF_OPERATION, OperatingModes.PROFILE_POSITION_MODE)
         tic = time.time()
-        while self._sdo_read(self.object_dict.MODES_OF_OPERATION_DISPLAY) != OperatingModes.PROFILE_POSITION_MODE.value:
+        while self._sdo_read(self.ADDRESS.MODES_OF_OPERATION_DISPLAY) != OperatingModes.PROFILE_POSITION_MODE.value:
             time.sleep(0.1)
             if time.time() - tic > .5:
                 raise TimeoutError(f'Timeout waiting for position mode on {self.node}.')
 
-        # self._sdo_write(self.object_dict.FOLLOWING_ERROR_WINDOW, 1000)
-        # self._sdo_write(self.object_dict.MAX_PROFILE_VELOCITY, 8000)
-        self._sdo_write(self.object_dict.QUICK_STOP_DECELERATION, 10000)
-        self._sdo_write(self.object_dict.PROFILE_ACCELERATION, 10000)
-        self._sdo_write(self.object_dict.PROFILE_DECELERATION, 10000)
-        self._sdo_write(self.object_dict.PROFILE_VELOCITY, int(abs(speed)))
+        # self._sdo_write(self.ADDRESS.FOLLOWING_ERROR_WINDOW, 1000)
+        # self._sdo_write(self.ADDRESS.MAX_PROFILE_VELOCITY, 8000)
+        self._sdo_write(self.ADDRESS.QUICK_STOP_DECELERATION, 10000)
+        self._sdo_write(self.ADDRESS.PROFILE_ACCELERATION, 10000)
+        self._sdo_write(self.ADDRESS.PROFILE_DECELERATION, 10000)
+        self._sdo_write(self.ADDRESS.PROFILE_VELOCITY, int(abs(speed)))
 
-        self._sdo_write(self.object_dict.CONTROLWORD, ControlwordStateCommands.SHUTDOWN)
+        self._sdo_write(self.ADDRESS.CONTROLWORD, ControlwordStateCommands.SHUTDOWN)
         time.sleep(self.CONTROLWORD_DELAY_TIME)  # Needed before continuing or checking statusword
         self.wait_for_statusword(StatuswordStates.READY_TO_SWITCH_ON, timeout=.5)
 
-        self._sdo_write(self.object_dict.CONTROLWORD, ControlwordStateCommands.SWITCH_ON_AND_ENABLE)
+        self._sdo_write(self.ADDRESS.CONTROLWORD, ControlwordStateCommands.SWITCH_ON_AND_ENABLE)
         time.sleep(self.CONTROLWORD_DELAY_TIME)  # Needed before continuing or checking statusword
         self.wait_for_statusword(StatuswordStates.OPERATION_ENABLED , timeout=.5)
 
-        self._sdo_write(self.object_dict.TARGET_POSITION, int(position))
+        self._sdo_write(self.ADDRESS.TARGET_POSITION, int(position))
 
         if absolute:
-            self._sdo_write(self.object_dict.CONTROLWORD, ControlWord.COMMAND_ABSOLUTE_START_IMMEDIATELY)
+            self._sdo_write(self.ADDRESS.CONTROLWORD, ControlWord.COMMAND_ABSOLUTE_START_IMMEDIATELY)
         else:
-            self._sdo_write(self.object_dict.CONTROLWORD, ControlWord.COMMAND_RELATIVE_START_IMMEDIATELY)
+            self._sdo_write(self.ADDRESS.CONTROLWORD, ControlWord.COMMAND_RELATIVE_START_IMMEDIATELY)
 
         #TODO fault handling
         # if StatuswordBits.FAULT in statusword.bits_set:
@@ -278,25 +273,25 @@ class EPOS4Motor:
 
     @property
     def controlword_sdo(self):
-        return self._sdo_read(self.object_dict.CONTROLWORD)
+        return self._sdo_read(self.ADDRESS.CONTROLWORD)
 
     @property
     def debug_info_sdo(self):
-        ec = self._sdo_read(self.object_dict.ERROR_CODE)
+        ec = self._sdo_read(self.ADDRESS.ERROR_CODE)
         return {'node': self.node,
                 "network_state": self._get_network_state(),
-                'position':self._sdo_read(self.object_dict.POSITION_ACTUAL_VALUE),
-                'target_position': self._sdo_read(self.object_dict.TARGET_POSITION),
-                'error_reg':self._sdo_read(self.object_dict.ERROR_REGISTER),
+                'position':self._sdo_read(self.ADDRESS.POSITION_ACTUAL_VALUE),
+                'target_position': self._sdo_read(self.ADDRESS.TARGET_POSITION),
+                'error_reg':self._sdo_read(self.ADDRESS.ERROR_REGISTER),
                 'error_code': EPOS4_ERRORS.get(ec, f'Unknown error code ({ec})'),
-                'mode_of_operation': self._sdo_read(self.object_dict.MODES_OF_OPERATION_DISPLAY),
-                'velocity_demand' : self._sdo_read(self.object_dict.VELOCITY_DEMAND_VALUE),
-                'velocity_actual': self._sdo_read(self.object_dict.VELOCITY_ACTUAL_VALUE),
-                'velocity_profile': self._sdo_read(self.object_dict.PROFILE_VELOCITY),
-                'velocity_target': self._sdo_read(self.object_dict.TARGET_VELOCITY),
-                'torque_actual' : self._sdo_read(self.object_dict.TORQUE_ACTUAL_VALUE),
-                'controlword': self._sdo_read(self.object_dict.CONTROLWORD),
-                'statusword': StatuswordRegister(self._sdo_read(self.object_dict.STATUSWORD)),
+                'mode_of_operation': self._sdo_read(self.ADDRESS.MODES_OF_OPERATION_DISPLAY),
+                'velocity_demand' : self._sdo_read(self.ADDRESS.VELOCITY_DEMAND_VALUE),
+                'velocity_actual': self._sdo_read(self.ADDRESS.VELOCITY_ACTUAL_VALUE),
+                'velocity_profile': self._sdo_read(self.ADDRESS.PROFILE_VELOCITY),
+                'velocity_target': self._sdo_read(self.ADDRESS.TARGET_VELOCITY),
+                'torque_actual' : self._sdo_read(self.ADDRESS.TORQUE_ACTUAL_VALUE),
+                'controlword': self._sdo_read(self.ADDRESS.CONTROLWORD),
+                'statusword': StatuswordRegister(self._sdo_read(self.ADDRESS.STATUSWORD)),
                 "current_rx_pdo_map": self.currentRxPDOMap,
                 "current_tx_pdo_map": self.currentTxPDOMap,
                 }
@@ -313,11 +308,11 @@ class EPOS4Motor:
 
     def assert_device_state(self, state: Enum) -> bool:
         state = state.value if isinstance(state, Enum) else state
-        maskedWord = self.HAL.sdo_read(self, self.object_dict.STATUSWORD) & STATUSWORD_STATE_BITMASK
+        maskedWord = self.HAL.sdo_read(self, self.ADDRESS.STATUSWORD) & STATUSWORD_STATE_BITMASK
         return maskedWord == state
 
     def get_device_state(self):
-        return self.HAL.sdo_read(self, self.object_dict.STATUSWORD)
+        return self.HAL.sdo_read(self, self.ADDRESS.STATUSWORD)
 
     def set_device_state(self, state: Enum, mode ="automated"):
         """Set the device state of an individual slave. If the mode is default,
@@ -325,7 +320,7 @@ class EPOS4Motor:
         automatically find the correct set of transitions and set the state."""
 
         if mode.lower() == 'default':
-            self.HAL.sdo_write(self, self.object_dict.CONTROLWORD, state.value)
+            self.HAL.sdo_write(self, self.ADDRESS.CONTROLWORD, state.value)
 
         elif mode.lower() == 'automated':
             statusword = self.get_device_state()
@@ -335,7 +330,7 @@ class EPOS4Motor:
             controlwords = getStateTransitions(device_state, getStatuswordState(desired_state))
             getLogger(__name__).debug(f'State transition control word: {controlwords}')
             for controlword in controlwords:
-                self.HAL.sdo_write(self, self.object_dict.CONTROLWORD, controlword)
+                self.HAL.sdo_write(self, self.ADDRESS.CONTROLWORD, controlword)
 
         #TODO this is "Failing" as it is getting SWITCHED_ON, likely because the get state poll is too fast and it hasn't yet attained
         # OPERATION_ENABLED, it should optionally wait or at least not speciously warn
@@ -378,17 +373,17 @@ class EPOS4Motor:
         for i, address in enumerate(self.currentRxPDOMap):
             
             match address:
-                case self.object_dict.CONTROLWORD:
+                case self.ADDRESS.CONTROLWORD:
                     self._controlwordPDOIndex = i
-                case self.object_dict.MODES_OF_OPERATION:
+                case self.ADDRESS.MODES_OF_OPERATION:
                     self._setOperationModePDOIndex = i
 
         ### Find the most important addresses in the TxPDO ###
         for i, address in enumerate(self.currentTxPDOMap):
                 match address:
-                    case self.object_dict.STATUSWORD:
+                    case self.ADDRESS.STATUSWORD:
                         self._statuswordPDOIndex = i
-                    case self.object_dict.MODES_OF_OPERATION_DISPLAY:
+                    case self.ADDRESS.MODES_OF_OPERATION_DISPLAY:
                         self._modesOfOperationDisplayPDOIndex = i
 
     @property
@@ -410,7 +405,7 @@ class EPOS4Motor:
             # self.RxData = [0] * len(self.currentRxPDOMap)   # This could be bad, I'm trusting that maxon has it setup such that PDOs with all zeros or the lack of data results in no changes on the slave
 
         rx_ndx = None
-        operationModeIndex, operationModeSubIndex, *_ = self.object_dict.MODES_OF_OPERATION
+        operationModeIndex, operationModeSubIndex, *_ = self.ADDRESS.MODES_OF_OPERATION
         for i, address in enumerate(self.currentRxPDOMap):
             if address.index == operationModeIndex and address.subindex == operationModeSubIndex:
                 rx_ndx = i

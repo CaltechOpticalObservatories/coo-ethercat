@@ -264,7 +264,7 @@ class EPOS4Registers:
     NBR_OF_CONFIGURED_MODULES = EPOS4Obj(0xf030, 0x0, 'B', 8) # 6.2.151.1 % SEARCH MARKER: Modular device profile
     MODULE_1 = EPOS4Obj(0xf030, 0x1, 'I', 32) # 6.2.151.2 % SEARCH MARKER: Modular device profile
     PROGRAM_CONTROL = EPOS4Obj(0x1f51, 0x01, 'B', 8)  # 6.2.35
-    SSI_POSITION_RAW_VALUE = EPOS4Obj(0x3012,0x09,'I',32)  #6.2.55
+
     HOMING_METHOD = EPOS4Obj(0x6098, 0x0, 'b', 8)
     HOME_POSITION = EPOS4Obj(0x30B0, 0x0, 'i', 32)
     HOMING_ACCELERATION = EPOS4Obj(0x609A, 0x0, 'i', 32)
@@ -277,6 +277,39 @@ class EPOS4Registers:
     HOMING_CURRENT_THRESHOLD = EPOS4Obj(0x30B2, 0, 'H', 16)  # unsigned magnitude
     CURRENT_ACTUAL_VALUE_AVERAGED = EPOS4Obj(0x30D1, 0x01, 'i', 32)  # signed indicating direction
     CURRENT_ACTUAL_VALUE_INSTANT = EPOS4Obj(0x30D1, 0x02, 'i', 32)
+
+    NOMINAL_CURRENT_MA = EPOS4Obj(0x3001, 0x1, 'I', 32) # 6.2.50
+    OUTPUT_CURRENT_LIMIT_MA = EPOS4Obj(0x3001, 0x2, 'I', 32) # 6.2.50
+    NUMBER_OF_POLE_PAIRS = EPOS4Obj(0x3001, 0x3, 'B', 8) # 6.2.50
+    THERMAL_TIME_CONSTANT_WINDING_DS = EPOS4Obj(0x3001, 0x4, 'H', 16) # 6.2.50, deciseconds!!!
+    TORQUE_CONSTANT_UNM_A = EPOS4Obj(0x3001, 0x5, 'I', 32) # 6.2.50 #micro newton meters per amp
+
+    DIGITAL_INCREMENTAL_ENCODER_1 = EPOS4Obj(0x3010, 1, 'I', 32)  # pulses per rev is 1/4 increments/rev and 1/4 quadcounts/rev
+    DIGITAL_INCREMENTAL_ENCODER_1_TYPE = EPOS4Obj(0x3010, 2, 'H', 16)
+
+    GEAR_REDUCTION_NUMBERATOR = EPOS4Obj(0x3003, 1, 'I', 32)
+    GEAR_REDUCTION_DENOMINATOR = EPOS4Obj(0x3003, 2, 'I', 32)
+    GEAR_MAX_INPUT_SPEED_RPM = EPOS4Obj(0x3003, 3, 'I', 32)
+    GEAR_ORIENTATION = EPOS4Obj(0x3003, 4, 'I', 32)
+
+    ANALOG_INCREMENTAL_ENCODER_TYPE = EPOS4Obj(0x3011, 1, 'H', 16)
+    ANALOG_INCREMENTAL_ENCODER_RESOLUTION = EPOS4Obj(0x3011, 2, 'I', 31)
+    ANALOG_INCREMENTAL_ENCODER_INDEX_POSITION = EPOS4Obj(0x3011, 3, 'i', 32)
+
+    SSI_DATA_RATE_KBPS = EPOS4Obj(0x3012, 0x01, 'H', 16)  #6.2.55. kbit per sec
+    SSI_NUMBER_OF_BITS = EPOS4Obj(0x3012, 0x02, 'I', 32)  #31..24 reserved 23..16 multiturn 15..8 singleturn 7..0 special
+    SSI_ENCODING_TYPE = EPOS4Obj(0x3012, 0x3, 'H', 16)
+    SSI_TIMEOUT_TIME_US  = EPOS4Obj(0x3012, 0x5, 'H', 16)
+    SSI_SPECIAL_BITS_DATA = EPOS4Obj(0x3012, 0x6, 'H', 16)
+    SSI_REFRESH_FREQ_HZ = EPOS4Obj(0x3012, 0x7, 'I', 32)
+    SSI_POWER_UP_TIME_MS = EPOS4Obj(0x3012, 0x8, 'H', 16)
+    SSI_POSITION_RAW_VALUE = EPOS4Obj(0x3012, 0x9,'I',32)  #6.2.55
+    SSI_COMMUTATION_OFFSET_VALUE = EPOS4Obj(0x3012, 0xA,'I',32)  #6.2.55
+
+    AXIS_SENSORS_CONFIG = EPOS4Obj(0x3000, 0x01, 'I', 32)  # 6.2.49 31..24 reserved 23..16 sen3 15..8 sen2  7..0 sen1
+    AXIS_CONTROL_STRUCTURE = EPOS4Obj(0x3000, 0x02, 'I', 32)  # 6.2.49 Table6-95
+    AXIS_COMMUTATION_SENSORS = EPOS4Obj(0x3000, 0x03, 'I', 32)  # 6.2.49
+    AXIS_CONFIG_MISC = EPOS4Obj(0x3000, 0x04, 'I', 32)  # 6.2.49 Table6-95
 
 def getInfo(identifier: str | int, ObjDict) -> None:
     """Search for a command and print all information associated with a particular command name or index.
