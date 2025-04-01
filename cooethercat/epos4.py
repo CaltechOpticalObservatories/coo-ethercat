@@ -27,7 +27,7 @@ class EPOS4Motor:
             - The object dictionary should be a string that corresponds to the object dictionary of the slave."""
 
         self.pdo_input = None
-        self.HAL : EthercatBus = master._bus
+        self.HAL : EthercatBus = master._bus  #TODO make this simply master
         self.node = node
         self.currentRxPDOMap = None
         self.currentTxPDOMap = None
@@ -119,6 +119,64 @@ class EPOS4Motor:
         getLogger(__name__).info(f"Resetting node {self.node}, reinitialization may be necessary")
         self._sdo_write(self.ADDRESS.PROGRAM_CONTROL, ProgramControlReg.INITIATE_DEVICE_RESET.value)
         return self._sdo_read(self.ADDRESS.PROGRAM_CONTROL)
+
+    def fetch_config(self):
+        """Fetch all parameters that are relevant to the baseline operationn of the EPOS, the goal of this is help
+        facilitate programming without the EPOS Studio software."""
+        register_list = ('AXIS_SENSORS_CONFIG',
+                         'AXIS_CONTROL_STRUCTURE',
+                         'AXIS_COMMUTATION_SENSORS',
+                         'AXIS_CONFIG_MISC',
+                         'POSITION_CONTROLLER_I_GAIN',
+                         'POSITION_CONTROLLER_D_GAIN',
+                         'POSITION_CONTROLLER_FF_VELOCITY_GAIN',
+                         'POSITION_CONTROLLER_P_GAIN',
+                         'POSITION_CONTROLLER_FF_ACCELERATION_GAIN',
+                         'SSI_DATA_RATE_KBPS',
+                         'SSI_NUMBER_OF_BITS',
+                         'SSI_ENCODING_TYPE',
+                         'SSI_TIMEOUT_TIME_US',
+                         'SSI_SPECIAL_BITS_DATA',
+                         'SSI_REFRESH_FREQ_HZ',
+                         'SSI_POWER_UP_TIME_MS',
+                         'SSI_POSITION_RAW_VALUE',
+                         'SSI_COMMUTATION_OFFSET_VALUE',
+                         'DIGITAL_INCREMENTAL_ENCODER_1',
+                         'DIGITAL_INCREMENTAL_ENCODER_1_TYPE',
+                         'GEAR_REDUCTION_NUMERATOR',
+                         'GEAR_REDUCTION_DENOMINATOR',
+                         'GEAR_MAX_INPUT_SPEED_RPM',
+                         'GEAR_ORIENTATION',
+                         'ANALOG_INCREMENTAL_ENCODER_TYPE',
+                         'ANALOG_INCREMENTAL_ENCODER_RESOLUTION',
+                         'ANALOG_INCREMENTAL_ENCODER_INDEX_POSITION',
+                         'NOMINAL_CURRENT_MA',
+                         'OUTPUT_CURRENT_LIMIT_MA',
+                         'NUMBER_OF_POLE_PAIRS',
+                         'THERMAL_TIME_CONSTANT_WINDING_DS',
+                         'TORQUE_CONSTANT_UNM_A',
+                         'CURRENT_CONTROLLER_P_GAIN',
+                         'CURRENT_CONTROLLER_I_GAIN',
+                         'VELOCITY_CONTROLLER_P_GAIN',
+                         'VELOCITY_CONTROLLER_I_GAIN',
+                         'VELOCITY_CONTROLLER_FF_VELOCITY_GAIN',
+                         'VELOCITY_CONTROLLER_FF_ACCELERATION_GAIN',
+                         'NODE_ID',
+                         'SERIAL_NUMBER_COMPLETE',
+                         )
+        config = {}
+        for r_name in register_list:
+            config[r_name] = self._sdo_read(getattr(self.ADDRESS, r_name))
+        return config
+
+    def load_config(self, address_data:dict[str, int]):
+        """ CAUTION this is very much without safety checks. Prototype to load in config instead of using EPOS Studio
+        Use with fetch_config"""
+        for k, v in address_data.items():
+            self._sdo_write(getattr(self.ADDRESS, k), v)
+
+    def temperature(self)->float:
+        return self._sdo_read(self.ADDRESS.TEMPERATURE_DECICELSIUS)/10
 
     def home_via_method(self, method: HomingMethods, timeout=10, position_source: PositionSource=None, position:int=None,
                         current_threshold:int=300, monitor:EPOS4Obj=None, setup_only=False):
@@ -400,24 +458,29 @@ class EPOS4Motor:
         if self.currentRxPDOMap is None:
             raise ValueError("No PDO map was assigned to the slave (at least at a software level).")
 
-        if self.rx_data is None:  # Catch edge case that happens if user wants to change the operating mode first without creating a PDO message first
+        # Catch edge case that happens if user changes operating mode without creating a PDO message first
+        if self.rx_data is None:
             raise RuntimeError("Create a PDO message before changing operating mode.")
-            # self.RxData = [0] * len(self.currentRxPDOMap)   # This could be bad, I'm trusting that maxon has it setup such that PDOs with all zeros or the lack of data results in no changes on the slave
+            # self.RxData = [0] * len(self.currentRxPDOMap)
+            # This could be bad, I'm trusting that maxon has it setup such that PDOs with
+            # all zeros or the lack of data results in no changes on the slave
 
         rx_ndx = None
-        operationModeIndex, operationModeSubIndex, *_ = self.ADDRESS.MODES_OF_OPERATION
+        index, subindex, *_ = self.ADDRESS.MODES_OF_OPERATION
         for i, address in enumerate(self.currentRxPDOMap):
-            if address.index == operationModeIndex and address.subindex == operationModeSubIndex:
+            if address.index == index and address.subindex == subindex:
                 rx_ndx = i
         
         if rx_ndx is None:
-            raise RuntimeError("Can't change operating mode with PDO because the current RxPDO map doesn't contain the MODES_OF_OPERATION address.")
+            raise RuntimeError("Can't change operating mode with PDO because the current "
+                               "RxPDO map doesn't contain the MODES_OF_OPERATION address.")
 
-        #TODO why are we passing around an attribute?
+        #TODO why are we passing around an attribute? This is gross
         self.rx_data[rx_ndx] = mode.value
         self._create_pdo_message(self.rx_data)
 
     def profile_position_move(self, position:int, speed:int):
+        #TODO update this with modern statusword/state functions
         if not self.assert_device_state(StatuswordStates.OPERATION_ENABLED):
             raise RuntimeError("Device must be in OPERATION_ENABLED state to use profile position move.")
 
@@ -469,58 +532,5 @@ class EPOS4Motor:
         else:
             self.HAL.set_watchdog(self, timeout_ms)
 
-# Note this is left as an example of a config function, users of the cooethercat library should write their own!
-# def EPOS4MicroTRB_12CC_Config(slaveNum:int, slaves: list[EPOS4Motor]):
-#     """ Configures an EPOS4 Micro TRB 12CC device """
-#     #TODO see TODO note in EPOS4Bus.configureSlaves()
-#     dev = slaves[slaveNum]
-#     logging.debug(f"Configuring device {dev} (EPOS4 Micro 24/5)")
-#
-#
-#     # Define the Process Data Objects for PPM (Rx and Tx)
-#     PPMRx = [
-#         dev.objectDictionary.CONTROLWORD,
-#         dev.objectDictionary.TARGET_POSITION,
-#         dev.objectDictionary.PROFILE_ACCELERATION,
-#         dev.objectDictionary.PROFILE_DECELERATION,
-#         dev.objectDictionary.PROFILE_VELOCITY,
-#         dev.objectDictionary.MODES_OF_OPERATION,
-#         dev.objectDictionary.PHYSICAL_OUTPUTS
-#     ]
-#     PPMTx = [
-#         dev.objectDictionary.STATUSWORD,
-#         dev.objectDictionary.POSITION_ACTUAL_VALUE,
-#         dev.objectDictionary.VELOCITY_ACTUAL_VALUE,
-#         dev.objectDictionary.FOLLOWING_ERROR_ACTUAL_VALUE,
-#         dev.objectDictionary.MODES_OF_OPERATION_DISPLAY,
-#         dev.objectDictionary.DIGITAL_INPUTS
-#     ]
-#
-#     # Create rx and tx map integers
-#     rxAddressInts = makePDOMapping(PPMRx)
-#     txAddressInts = makePDOMapping(PPMTx)
-#
-#     # Assign rx map
-#     dev._sdo_write(dev.objectDictionary.NUMBER_OF_MAPPED_OBJECTS_IN_RXPDO_1, 0)
-#     for i, addressInt in enumerate(rxAddressInts):
-#         dev._sdo_write((0x1600, i + 1, 'I'), addressInt)
-#     dev._sdo_write(dev.objectDictionary.NUMBER_OF_MAPPED_OBJECTS_IN_RXPDO_1, len(PPMRx))
-#
-#     # Assign tx map
-#     dev._sdo_write(dev.objectDictionary.NUMBER_OF_MAPPED_OBJECTS_IN_TXPDO_1, 0)
-#     for i, addressInt in enumerate(txAddressInts):
-#         dev._sdo_write((0x1A00, i + 1, 'I'), addressInt)
-#     dev._sdo_write(dev.objectDictionary.NUMBER_OF_MAPPED_OBJECTS_IN_TXPDO_1, len(PPMTx))
-#
-#     dev.currentRxPDOMap = PPMRx
-#     dev.currentTxPDOMap = PPMTx
-#
-#     # Configure Digital Inputs (example)
-#     #TODO these write functions seem to expect a tuple not an Enum
-#     dev._sdo_write(dev.objectDictionary.DIGITAL_INPUT_CONFIGURATION_DGIN_1, 255)
-#     dev._sdo_write(dev.objectDictionary.DIGITAL_INPUT_CONFIGURATION_DGIN_2, 1)
-#     dev._sdo_write(dev.objectDictionary.DIGITAL_INPUT_CONFIGURATION_DGIN_1, 0)
-#
-#     # Set the home offset move distance
-#     dev._sdo_write(dev.objectDictionary.HOME_OFFSET_MOVE_DISTANCE, -622080)
-#     logging.debug("Slave configuration complete.")
+    def config_func(self, node_id: int):
+        raise RuntimeError('Must be implemented by subclass')
