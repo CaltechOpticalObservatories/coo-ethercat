@@ -354,6 +354,16 @@ class EPOS4Motor:
                 "current_tx_pdo_map": self.currentTxPDOMap,
                 }
 
+    @property
+    def info_sdo(self):
+        ec = self._sdo_read(self.ADDRESS.ERROR_CODE)
+        return {'node': self.node,
+                'position':self._sdo_read(self.ADDRESS.POSITION_ACTUAL_VALUE),
+                'target_position': self._sdo_read(self.ADDRESS.TARGET_POSITION),
+                'error_reg':self._sdo_read(self.ADDRESS.ERROR_REGISTER),
+                'error_code': EPOS4_ERRORS.get(ec, f'Unknown error code ({ec})'),
+                }
+
     ### State methods ###
     def _assert_network_state(self, state: Enum) -> bool:
         return self.HAL.assertNetworkState(self, state)
