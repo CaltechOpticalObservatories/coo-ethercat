@@ -179,7 +179,7 @@ class EPOS4Motor:
         return self._sdo_read(self.ADDRESS.TEMPERATURE_DECICELSIUS)/10
 
     def home_via_method(self, method: HomingMethods, timeout=10, position_source: PositionSource=None, position:int=None,
-                        current_threshold:int=300, monitor:EPOS4Obj=None, setup_only=False):
+                        current_threshold:int=400, monitor:EPOS4Obj=None, setup_only=False, wait_attained=False):
 
         if method==HomingMethods.ACTUAL_POSITION:
             if position_source is None:
@@ -231,7 +231,7 @@ class EPOS4Motor:
         # self._sdo_write(self.ADDRESS.QUICK_STOP_DECELERATION, 10000)
         self._sdo_write(self.ADDRESS.HOMING_ACCELERATION, 5000)
         self._sdo_write(self.ADDRESS.SPEED_FOR_SWITCH_SEARCH, 4000)
-        self._sdo_write(self.ADDRESS.SPEED_FOR_ZERO_SEARCH, 50)
+        self._sdo_write(self.ADDRESS.SPEED_FOR_ZERO_SEARCH, 2000)
         self._sdo_write(self.ADDRESS.HOMING_CURRENT_THRESHOLD, current_threshold)
         self._sdo_write(self.ADDRESS.HOME_OFFSET_MOVE_DISTANCE, offset_distance*sign)
         self._sdo_write(self.ADDRESS.HOME_POSITION, home_pos)
@@ -250,21 +250,24 @@ class EPOS4Motor:
 
         self._sdo_write(self.ADDRESS.CONTROLWORD, ControlWord.COMMAND_START_HOMING)
         time.sleep(self.CONTROLWORD_DELAY_TIME)  # Needed before continuing or checking statusword
-        statusword = self.wait_for_statusword((StatuswordBits.FAULT, StatuswordBits.FAULT.HOMING_ERROR,
-                                                    StatuswordBits.FAULT.HOMING_ATTAINED), timeout=timeout,
-                                              monitor=monitor)
 
-        if not StatuswordBits.HOMING_ATTAINED in statusword.bits_set:
-            msg = f'Homing failed on {self.node} via {method}. Statusword: {statusword}, shutting down drive.'
-            getLogger(__name__).error(msg)
+
+        if wait_attained:
+            statusword = self.wait_for_statusword((StatuswordBits.FAULT, StatuswordBits.FAULT.HOMING_ERROR,
+                                                   StatuswordBits.FAULT.HOMING_ATTAINED), timeout=timeout,
+                                                  monitor=monitor)
+
+            if not StatuswordBits.HOMING_ATTAINED in statusword.bits_set:
+                msg = f'Homing failed on {self.node} via {method}. Statusword: {statusword}, shutting down drive.'
+                getLogger(__name__).error(msg)
+                self._sdo_write(self.ADDRESS.CONTROLWORD, ControlwordStateCommands.SHUTDOWN)
+                raise RuntimeError(msg)
+
+            getLogger(__name__).info(f'Homed {self.node} via {method}.')
+
             self._sdo_write(self.ADDRESS.CONTROLWORD, ControlwordStateCommands.SHUTDOWN)
-            raise RuntimeError(msg)
-
-        getLogger(__name__).info(f'Homed {self.node} via {method}.')
-
-        self._sdo_write(self.ADDRESS.CONTROLWORD, ControlwordStateCommands.SHUTDOWN)
-        time.sleep(self.CONTROLWORD_DELAY_TIME)  # Needed before continuing or checking statusword
-        self.wait_for_statusword(StatuswordStates.READY_TO_SWITCH_ON, timeout=.5)
+            time.sleep(self.CONTROLWORD_DELAY_TIME)  # Needed before continuing or checking statusword
+            self.wait_for_statusword(StatuswordStates.READY_TO_SWITCH_ON, timeout=.5)
 
     def profile_position_move_sdo(self, position:int, speed:int, absolute:bool=True):
 
