@@ -341,7 +341,7 @@ class EPOS4Motor:
                 'position':self._sdo_read(self.ADDRESS.POSITION_ACTUAL_VALUE),
                 'target_position': self._sdo_read(self.ADDRESS.TARGET_POSITION),
                 'error_reg':self._sdo_read(self.ADDRESS.ERROR_REGISTER),
-                'error_code': repr(EPOS4_ERRORS.get(ec, f'Unknown error code ({ec})')),
+                'error_code': EPOS4_ERRORS.get(ec, f'Unknown error code ({ec})'),
                 'mode_of_operation': self._sdo_read(self.ADDRESS.MODES_OF_OPERATION_DISPLAY),
                 'velocity_demand' : self._sdo_read(self.ADDRESS.VELOCITY_DEMAND_VALUE),
                 'velocity_actual': self._sdo_read(self.ADDRESS.VELOCITY_ACTUAL_VALUE),
@@ -349,7 +349,7 @@ class EPOS4Motor:
                 'velocity_target': self._sdo_read(self.ADDRESS.TARGET_VELOCITY),
                 'torque_actual' : self._sdo_read(self.ADDRESS.TORQUE_ACTUAL_VALUE),
                 'controlword': self._sdo_read(self.ADDRESS.CONTROLWORD),
-                'statusword': repr(StatuswordRegister(self._sdo_read(self.ADDRESS.STATUSWORD))),
+                'statusword': StatuswordRegister(self._sdo_read(self.ADDRESS.STATUSWORD)),
                 # "current_rx_pdo_map": self.currentRxPDOMap,
                 # "current_tx_pdo_map": self.currentTxPDOMap,
                 }
@@ -361,7 +361,7 @@ class EPOS4Motor:
                 'position':self._sdo_read(self.ADDRESS.POSITION_ACTUAL_VALUE),
                 'target_position': self._sdo_read(self.ADDRESS.TARGET_POSITION),
                 'error_reg':self._sdo_read(self.ADDRESS.ERROR_REGISTER),
-                'error_code': repr(EPOS4_ERRORS.get(ec, f'Unknown error code ({ec})')),
+                'error_code': EPOS4_ERRORS.get(ec, f'Unknown error code ({ec})'),
                 }
 
     ### State methods ###
