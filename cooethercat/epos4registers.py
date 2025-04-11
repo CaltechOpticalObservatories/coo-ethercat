@@ -7,8 +7,13 @@ class EPOS4Error:
     description: str
     reaction_code: str
     pos_clear: bool
+
     def __str__(self):
         return f"{self.description} ({self.code}) {self.reaction_code} {self.pos_clear}"
+
+    def __repr__(self):
+        return (f"EPOS4Error(code={self.code}, error_reg={self.error_reg}, description={self.description}, "
+                f"reaction_code={self.reaction_code}, pos_clear={self.pos_clear})")
 
 
 EPOS4_ERRORS = {0x0: EPOS4Error(0x0, 0x0, "No Error", '', False),
