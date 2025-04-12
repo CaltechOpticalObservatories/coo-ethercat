@@ -353,6 +353,7 @@ class EPOS4Motor:
                 'torque_actual' : self._sdo_read(self.ADDRESS.TORQUE_ACTUAL_VALUE),
                 'controlword': self._sdo_read(self.ADDRESS.CONTROLWORD),
                 'statusword': StatuswordRegister(self._sdo_read(self.ADDRESS.STATUSWORD)),
+                'temperatue': self.temperature(),
                 # "current_rx_pdo_map": self.currentRxPDOMap,
                 # "current_tx_pdo_map": self.currentTxPDOMap,
                 }
