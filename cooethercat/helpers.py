@@ -326,6 +326,7 @@ class EPOS4Registers:
 
     TEMPERATURE_DECICELSIUS = EPOS4Obj(0x3201, 0x1, 'h', 16)
 
+
 def getInfo(identifier: str | int, ObjDict) -> None:
     """Search for a command and print all information associated with a particular command name or index.
     
