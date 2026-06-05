@@ -1,5 +1,93 @@
-from .epos4 import EPOS4Motor
-from .epos4bus import EPOS4Bus
-from .helpers import StatuswordStates
+"""Public API for cooethercat."""
 
-__all__ = [EPOS4Bus, StatuswordStates, EPOS4Motor]
+from .bus import (
+    BusNotOpenError,
+    EtherCATBus,
+    EtherCATError,
+    EtherCATState,
+    SlaveInfo,
+    SlaveNotFoundError,
+    StateTransitionError,
+)
+from .cia402 import (
+    CiA402Drive,
+    CiA402Error,
+    CiA402ModeError,
+    CiA402State,
+    CiA402StateError,
+    ControlwordBit,
+    ControlwordCommand,
+    MotionCommand,
+    ObjectEntry,
+    OperatingMode,
+    Statusword,
+    StatuswordBit,
+    transition_sequence,
+)
+from .epos4 import (
+    DEFAULT_PROFILE_POSITION_RX_PDO,
+    DEFAULT_PROFILE_POSITION_TX_PDO,
+    EPOS4Object,
+    HomingMethod,
+    MaxonEPOS4,
+    MaxonEPOS4Error,
+    PositionSource,
+)
+from .maxon_errors import (
+    EPOS4Error,
+    EPOS4_ERRORS,
+    get_epos4_error,
+    is_known_epos4_error,
+)
+from .pdo import (
+    BufferedPDODevice,
+    PDODevice,
+    PDOEntry,
+    PDOError,
+    PDOLayout,
+    PDOLoop,
+    PDOLoopAlreadyRunningError,
+    PDOLoopNotRunningError,
+)
+
+__all__ = [
+    "BusNotOpenError",
+    "EtherCATBus",
+    "EtherCATError",
+    "EtherCATState",
+    "SlaveInfo",
+    "SlaveNotFoundError",
+    "StateTransitionError",
+    "CiA402Drive",
+    "CiA402Error",
+    "CiA402ModeError",
+    "CiA402State",
+    "CiA402StateError",
+    "ControlwordBit",
+    "ControlwordCommand",
+    "MotionCommand",
+    "ObjectEntry",
+    "OperatingMode",
+    "Statusword",
+    "StatuswordBit",
+    "transition_sequence",
+    "DEFAULT_PROFILE_POSITION_RX_PDO",
+    "DEFAULT_PROFILE_POSITION_TX_PDO",
+    "EPOS4Object",
+    "HomingMethod",
+    "MaxonEPOS4",
+    "MaxonEPOS4Error",
+    "PositionSource",
+    "EPOS4Error",
+    "EPOS4_ERRORS",
+    "get_epos4_error",
+    "is_known_epos4_error",
+    "BufferedPDODevice",
+    "PDODevice",
+    "PDOEntry",
+    "PDOError",
+    "PDOLayout",
+    "PDOLoop",
+    "PDOLoopAlreadyRunningError",
+    "PDOLoopNotRunningError",
+]
