@@ -1,164 +1,385 @@
-from collections import OrderedDict
-from typing import Iterable
+"""
+EtherCAT bus layer.
+
+This module is focuses on:
+- open/close the EtherCAT interface
+- discover/configure slaves
+- read/write SDOs
+- exchange PDO process data
+- manage EtherCAT network/slave states
+"""
+
+from __future__ import annotations
+
+import functools
+import logging
+import struct
+import sys
+from dataclasses import dataclass
+from enum import IntEnum
+from threading import RLock
+from typing import Any, Optional, Sequence
 
 import pysoem
-import struct
-from enum import Enum
-from logging import getLogger
-import netifaces
-from threading import RLock
-import functools
 
-from .helpers import STATUSWORD_STATE_BITMASK
+LOG = logging.getLogger(__name__)
 
-#TODO I'm increasingly of the opintion that having both EthercatBus and EPOS4Bus does not make sense and is a ppoor strategy
-class EthercatBus:
+
+class EtherCATError(RuntimeError):
+    """Base exception for EtherCAT bus errors."""
+
+
+class BusNotOpenError(EtherCATError):
+    """Raised when a bus operation requires an opened interface."""
+
+
+class SlaveNotFoundError(EtherCATError):
+    """Raised when a requested slave index is invalid."""
+
+
+class StateTransitionError(EtherCATError):
+    """Raised when a slave or network fails to reach the requested state."""
+
+
+class EtherCATState(IntEnum):
+    """Common EtherCAT application-layer states."""
+
+    INIT = 0x01
+    PREOP = 0x02
+    BOOT = 0x03
+    SAFEOP = 0x04
+    OP = 0x08
+
+
+@dataclass(frozen=True)
+class SlaveInfo:
+    """Lightweight description of an EtherCAT slave."""
+
+    index: int
+    name: str
+    manufacturer_id: Any
+    product_id: Any
+    revision: Any
+    state: Any
+
+
+class EtherCATBus:
+    """
+    Thin wrapper around a pysoem Master.
+
+    Higher-level device classes should depend on this class instead of reaching
+    directly into pysoem. 
+    """
+
+    def __init__(
+        self,
+        ifname: str,
+        *,
+        master: Optional[pysoem.Master] = None,
+        validate_interface: bool = True,
+    ) -> None:
+        self.ifname = ifname
+        self.master = master or pysoem.Master()
+        self.validate_interface = validate_interface
+        self.lock = RLock()
+        self._is_open = False
+        self._is_configured = False
 
     @staticmethod
-    def bus_locked(method):
+    def locked(method):
+        """Serialize access to the underlying pysoem master."""
+
         @functools.wraps(method)
-        def wrapper(self, *args, **kwargs):
+        def wrapper(self: "EtherCATBus", *args, **kwargs):
             with self.lock:
                 return method(self, *args, **kwargs)
 
         return wrapper
 
-    def __init__(self, ifname: str):
-        self.ifname = ifname
-        self.pysoem_master = pysoem.Master()
-        self.lock = RLock()
+    def __enter__(self) -> "EtherCATBus":
+        self.open()
+        return self
 
-    #TODO replace these with decorators that automate this, Bus user shall not need to worry about interface state.
-    def open(self):
-        """Opens the network interface with the given interface name."""
+    def __exit__(self, exc_type, exc, tb) -> None:
+        self.close()
+
+    @property
+    def is_open(self) -> bool:
+        return self._is_open
+
+    @property
+    def is_configured(self) -> bool:
+        return self._is_configured
+
+    def _require_open(self) -> None:
+        if not self._is_open:
+            raise BusNotOpenError(f"EtherCAT interface {self.ifname!r} is not open")
+
+    @staticmethod
+    def _normalize_state(state: int | IntEnum) -> int:
+        return int(state.value) if isinstance(state, IntEnum) else int(state)
+
+    def _slave(self, slave_index: int):
+        slaves = self._require_slaves()
         try:
-            if self.ifname in netifaces.interfaces():
-                address_families = netifaces.ifaddresses(self.ifname)
-                if not netifaces.AF_LINK in address_families:
-                    raise RuntimeError(f"Interface {self.ifname} is not UP.")
-            else:
-                raise RuntimeError(f"Interface {self.ifname} not found.")
-        except Exception as e:
-            raise e
-        self.pysoem_master.open(self.ifname)  # pysoem doesn't return anything, so we can't check if it was successful
+            return slaves[slave_index]
+        except IndexError as exc:
+            raise SlaveNotFoundError(f"No EtherCAT slave at index {slave_index}") from exc
 
-    def close(self):
-        """Closes the network interface."""
-        self.pysoem_master.close()
-
-    ### SDO methods ###
-    @bus_locked
-    def SDORead(self, slaveInstance, address: Iterable):
-        """Reads a Service Data Object (SDO) from a slave."""
-        slave = self.pysoem_master.slaves[slaveInstance.node]
-        index, subIndex, packFormat, *_ = address
-        response = struct.unpack('<' + packFormat, slave.sdo_read(index, subIndex))
-        return response[0] if len(response) == 1 else response
-
-    @bus_locked
-    def SDOWrite(self, slaveInstance, address: Iterable, data, completeAccess=False):
-        """Writes a Service Data Object (SDO) to a slave."""
-        slave = self.pysoem_master.slaves[slaveInstance.node]
-        index, subIndex, packFormat, *_ = address
-        slave.sdo_write(index, subIndex, struct.pack('<' + packFormat, data), ca=completeAccess)
-
-    ### Slave configuration methods ###
-    @bus_locked
-    def initialize_slaves(self):
-        """Creates slave objects for each slave and assigns them to self.slaves. Returns the number of slaves."""
-        n = self.pysoem_master.config_init()
-        getLogger(__name__).info(self.slave_info(as_string=True))
-        return n
-
-    def slave_info(self, as_string=False):
-        """Gathers detailed information for each slave."""
-        keys = ('id', 'name', 'manufacturer', 'revision', 'state')
-        attribs = ('id', 'name', 'man', 'rev', 'state')
-        defaults = ('N/A', '""', 'N/A', 'N/A', 'N/A')
-        data = OrderedDict()
-        for slave_ndx, slave in enumerate(self.pysoem_master.slaves):
-            # Inspect the available attributes using dir()
-            data[slave_ndx] = OrderedDict()
-            data[slave_ndx]['attributes'] = [x for x in dir(slave) if not x.startswith('__')]
-            for key, attrib, default in zip(keys, attribs, defaults):
-                try:
-                    data[slave_ndx][key] = getattr(slave, attrib, default)  # Revision number
-                except Exception as e:
-                    data[slave_ndx][key] = f"<Error {e} for '{attrib}' attribute>"
-
-        if as_string:
-            fmt = ("Available attributes: {attributes}\n"
-                   "ID: {id} - Name: {name}, Manufacturer ID: {manufacturer}, Revision: {revision}, State: {state}")
-            string = ("Slave Information:"+
-             '\n----\n'.join( [fmt.format(**rec) for rec in data.values()])+
-             f'\nTotal slaves: {len(self.pysoem_master.slaves)}')
-
-        return string if as_string else data
-
-    @bus_locked
-    def configureSlaves(self):
-        """Configures the slaves"""
-        self.pysoem_master.config_map()
-
-    @bus_locked
-    def setWatchDog(self, slaveInstance, timeout: float):
-        """Sets the watchdog timeout for the slave.
-        Inputs:
-            slave: high level master.py.slave instance
-            timeout: float
-                The timeout in milliseconds
+    def _validate_linux_interface_is_up(self) -> None:
         """
-        self.pysoem_master.slaves[slaveInstance.node].set_watchdog('pdi', timeout)
-        self.pysoem_master.slaves[slaveInstance.node].set_watchdog('processdata', timeout)
+        Check interface state on Linux.
 
-    ### Network state methods ###
-    # 1. Apply to all slaves
-    @bus_locked
-    def assertNetworkWideState(self, state: int) -> bool:
-        return self.pysoem_master.state_check(state) == state
+        macOS and other platforms do not expose /sys/class/net, so on those
+        systems pysoem is allowed to attempt opening the interface directly.
+        """
+        if not self.validate_interface:
+            return
 
-    @bus_locked
-    def getNetworkWideState(self):
-        self.pysoem_master.read_state()  # Cursed abstraction by pysoem, slaves can't refresh their own state :(
-        states = []
-        for i, slave in enumerate(self.pysoem_master.slaves):
-            states += [slave.state]
-        return states
+        if not sys.platform.startswith("linux"):
+            return
 
-    @bus_locked
-    def setNetworkWideState(self, state: Enum| int):
-        state = state.value if isinstance(state, Enum) else state
-        self.pysoem_master.state = state
-        self.pysoem_master.write_state()
+        operstate = f"/sys/class/net/{self.ifname}/operstate"
+        try:
+            with open(operstate, "r", encoding="utf-8") as f:
+                state = f.read().strip().lower()
+        except FileNotFoundError as exc:
+            raise EtherCATError(
+                f"Interface {self.ifname!r} was not found at {operstate}"
+            ) from exc
 
-    # 2. Apply to individual slaves
-    def assertNetworkState(self, slaveInstance, state: int|Enum) -> bool:
-        state = state.value if isinstance(state, Enum) else state
-        return self.getNetworkState(slaveInstance) == state
+        if state != "up":
+            raise EtherCATError(
+                f"Interface {self.ifname!r} is not UP; current state is {state!r}. "
+                f"Try: sudo ip link set dev {self.ifname} up"
+            )
 
-    @bus_locked
-    def getNetworkState(self, slaveInstance):
-        self.pysoem_master.read_state()  # Cursed, the slaves can't refresh their own state
-        return self.pysoem_master.slaves[slaveInstance.node].state
+    @locked
+    def open(self) -> None:
+        """Open the EtherCAT network interface."""
+        if self._is_open:
+            return
 
-    @bus_locked
-    def setNetworkState(self, slaveInstance, state: int | Enum):
-        state = state.value if isinstance(state, Enum) else state
-        self.pysoem_master.slaves[slaveInstance.node].state = state
-        self.pysoem_master.slaves[slaveInstance.node].write_state()
+        self._validate_linux_interface_is_up()
+        self.master.open(self.ifname)
+        self._is_open = True
+        LOG.info("Opened EtherCAT interface %s", self.ifname)
 
-    ### PDO methods ###
-    @bus_locked
-    def sendProcessData(self):
-        self.pysoem_master.send_processdata()
+    @locked
+    def close(self) -> None:
+        """Close the EtherCAT network interface."""
+        if not self._is_open:
+            return
 
-    @bus_locked
-    def receiveProcessData(self):
-        self.pysoem_master.receive_processdata(timeout=2000)
+        try:
+            self.master.close()
+        finally:
+            self._is_open = False
+            self._is_configured = False
+            LOG.info("Closed EtherCAT interface %s", self.ifname)
 
-    def addPDOMessage(self, slaveInstance, packFormat, data):
-        """Adds a PDO message to the slave's PDO buffer."""
-        self.pysoem_master.slaves[slaveInstance.node].output = struct.pack('<' + packFormat, *data)
+    @locked
+    def scan(self) -> list[SlaveInfo]:
+        """
+        Discover slaves and return their basic information.
 
-    def __del__(self):
-        self.pysoem_master.close()
+        This calls pysoem config_init(), which initializes the slave list.
+        """
+        self._require_open()
+        count = self.master.config_init()
+        LOG.info("Discovered %d EtherCAT slave(s)", count)
+        return self.slave_info()
+
+    @locked
+    def configure(self) -> None:
+        """Configure process-data mapping for discovered slaves."""
+        self._require_open()
+        self.master.config_map()
+        self._is_configured = True
+        LOG.info("Configured EtherCAT PDO mapping")
+
+    @locked
+    def slave_info(self) -> list[SlaveInfo]:
+        """Return basic information for all currently discovered slaves."""
+        self._require_open()
+
+        info: list[SlaveInfo] = []
+        for index, slave in enumerate(self.master.slaves):
+            info.append(
+                SlaveInfo(
+                    index=index,
+                    name=getattr(slave, "name", ""),
+                    manufacturer_id=getattr(slave, "man", None),
+                    product_id=getattr(slave, "id", None),
+                    revision=getattr(slave, "rev", None),
+                    state=getattr(slave, "state", None),
+                )
+            )
+        return info
+
+    def format_slave_info(self) -> str:
+        """Return a human-readable slave summary."""
+        lines = ["EtherCAT slaves:"]
+        for slave in self.slave_info():
+            lines.append(
+                f"  [{slave.index}] {slave.name} "
+                f"man={slave.manufacturer_id} "
+                f"id={slave.product_id} "
+                f"rev={slave.revision} "
+                f"state={slave.state}"
+            )
+        return "\n".join(lines)
+
+    @locked
+    def read_sdo(
+        self,
+        slave_index: int,
+        index: int,
+        subindex: int,
+        fmt: str,
+    ) -> Any:
+        """
+        Read an SDO and unpack it using a struct format.
+
+        Example:
+            statusword = bus.read_sdo(0, 0x6041, 0x00, "H")
+        """
+        slave = self._slave(slave_index)
+        raw = slave.sdo_read(index, subindex)
+        values = struct.unpack("<" + fmt, raw)
+        return values[0] if len(values) == 1 else values
+
+    @locked
+    def write_sdo(
+        self,
+        slave_index: int,
+        index: int,
+        subindex: int,
+        fmt: str,
+        value: Any,
+        *,
+        complete_access: bool = False,
+    ) -> None:
+        """
+        Pack and write an SDO.
+
+        Example:
+            bus.write_sdo(0, 0x6040, 0x00, "H", 0x0006)
+        """
+        slave = self._slave(slave_index)
+
+        if isinstance(value, Sequence) and not isinstance(value, (bytes, bytearray, str)):
+            payload = struct.pack("<" + fmt, *value)
+        else:
+            payload = struct.pack("<" + fmt, value)
+
+        slave.sdo_write(index, subindex, payload, ca=complete_access)
+
+    @locked
+    def send_processdata(self) -> int:
+        """Send PDO process data to slaves."""
+        self._require_open()
+        return self.master.send_processdata()
+
+    @locked
+    def receive_processdata(self, timeout_us: int = 2000) -> int:
+        """Receive PDO process data from slaves."""
+        self._require_open()
+        return self.master.receive_processdata(timeout_us)
+
+    @locked
+    def exchange_processdata(self, timeout_us: int = 2000) -> int:
+        """Perform one send/receive PDO exchange."""
+        self._require_open()
+        self.master.send_processdata()
+        return self.master.receive_processdata(timeout_us)
+
+    @locked
+    def write_pdo(self, slave_index: int, fmt: str, values: Sequence[Any]) -> None:
+        """Pack values into a slave output PDO buffer."""
+        slave = self._slave(slave_index)
+        slave.output = struct.pack("<" + fmt, *values)
+
+    @locked
+    def read_pdo(self, slave_index: int, fmt: str) -> Any:
+        """Unpack values from a slave input PDO buffer."""
+        slave = self._slave(slave_index)
+        size = struct.calcsize("<" + fmt)
+        values = struct.unpack("<" + fmt, slave.input[:size])
+        return values[0] if len(values) == 1 else values
+
+    @locked
+    def set_watchdog(self, slave_index: int, timeout_ms: float) -> None:
+        """Set PDI and process-data watchdogs for a slave."""
+        slave = self._slave(slave_index)
+        slave.set_watchdog("pdi", timeout_ms)
+        slave.set_watchdog("processdata", timeout_ms)
+
+    @locked
+    def read_states(self) -> list[int]:
+        """Refresh and return all slave states."""
+        slaves = self._require_slaves()
+        self.master.read_state()
+        return [slave.state for slave in slaves]
+
+    @locked
+    def set_master_state(self, state: int | IntEnum) -> None:
+        """Request a state for the whole EtherCAT network."""
+        self._require_open()
+        self.master.state = self._normalize_state(state)
+        self.master.write_state()
+
+    @locked
+    def wait_for_master_state(
+        self,
+        state: int | IntEnum,
+        *,
+        timeout_us: int = 50_000,
+    ) -> bool:
+        """Return True if the network reaches the requested state."""
+        self._require_open()
+        requested = self._normalize_state(state)
+        return self.master.state_check(requested, timeout_us) == requested
+
+    def assert_master_state(
+        self,
+        state: int | IntEnum,
+        *,
+        timeout_us: int = 50_000,
+    ) -> None:
+        """Raise if the whole network does not reach the requested state."""
+        requested = self._normalize_state(state)
+        if not self.wait_for_master_state(requested, timeout_us=timeout_us):
+            raise StateTransitionError(
+                f"EtherCAT network did not reach state {requested:#x}; "
+                f"current states: {self.read_states()}"
+            )
+
+    @locked
+    def set_slave_state(self, slave_index: int, state: int | IntEnum) -> None:
+        """Request a state for one slave."""
+        slave = self._slave(slave_index)
+        slave.state = self._normalize_state(state)
+        slave.write_state()
+
+    @locked
+    def get_slave_state(self, slave_index: int) -> int:
+        """Refresh and return one slave state."""
+        self._require_open()
+        self.master.read_state()
+        return self._slave(slave_index).state
+
+    def is_slave_state(self, slave_index: int, state: int | IntEnum) -> bool:
+        """Return True if one slave is currently in the requested state."""
+        return self.get_slave_state(slave_index) == self._normalize_state(state)
+
+    def _require_slaves(self):
+        self._require_open()
+
+        if self.master.slaves is None:
+            raise EtherCATError(
+                "No EtherCAT slaves have been initialized yet. "
+                "Call bus.scan() before reading slave states or creating devices."
+            )
+
+        return self.master.slaves
