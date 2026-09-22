@@ -13,9 +13,8 @@ import logging
 import threading
 import time
 from enum import Enum, IntEnum, auto
-from typing import Any, Mapping, MutableMapping
+from typing import TYPE_CHECKING, Any, Mapping, MutableMapping
 
-from .bus import EtherCATBus
 from .cia402 import (
     CiA402Drive,
     CiA402Object,
@@ -28,6 +27,9 @@ from .cia402 import (
 )
 from .maxon_errors import EPOS4Error, get_epos4_error
 from .pdo import PDOEntry, PDOLayout
+
+if TYPE_CHECKING:
+    from .bus import EtherCATBus
 
 LOG = logging.getLogger(__name__)
 
