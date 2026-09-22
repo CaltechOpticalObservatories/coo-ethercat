@@ -1,5 +1,21 @@
 """Public API for cooethercat."""
 
+from .axis import (
+    ALL_FIELDS,
+    SETTINGS,
+    STATUS,
+    TRIGGERS,
+    Axis,
+    AxisBackend,
+    AxisError,
+    AxisField,
+    AxisSet,
+    AxisState,
+    Dimension,
+    FieldKind,
+    MoveMode,
+)
+from .backends.sim import SimBackend, open_simulated
 from .bus import (
     BusNotOpenError,
     EtherCATBus,
@@ -47,8 +63,8 @@ from .epos4 import (
     PositionSource,
 )
 from .maxon_errors import (
-    EPOS4Error,
     EPOS4_ERRORS,
+    EPOS4Error,
     get_epos4_error,
     is_known_epos4_error,
 )
@@ -64,7 +80,20 @@ from .pdo import (
 )
 
 __all__ = [
+    "ALL_FIELDS",
+    "DEFAULT_PROFILE_POSITION_RX_PDO",
+    "DEFAULT_PROFILE_POSITION_TX_PDO",
+    "EPOS4_ERRORS",
+    "SETTINGS",
+    "STATUS",
+    "TRIGGERS",
+    "Axis",
+    "AxisBackend",
     "AxisConfig",
+    "AxisError",
+    "AxisField",
+    "AxisSet",
+    "AxisState",
     "Backend",
     "BufferedPDODevice",
     "BusNotOpenError",
@@ -76,19 +105,19 @@ __all__ = [
     "ConfigError",
     "ControlwordBit",
     "ControlwordCommand",
-    "DEFAULT_PROFILE_POSITION_RX_PDO",
-    "DEFAULT_PROFILE_POSITION_TX_PDO",
+    "Dimension",
     "EPOS4Error",
     "EPOS4Object",
-    "EPOS4_ERRORS",
     "EtherCATBus",
     "EtherCATError",
     "EtherCATState",
+    "FieldKind",
     "HomingMethod",
     "Limits",
     "MaxonEPOS4",
     "MaxonEPOS4Error",
     "MotionCommand",
+    "MoveMode",
     "ObjectEntry",
     "OperatingMode",
     "PDODevice",
@@ -100,6 +129,7 @@ __all__ = [
     "PDOLoopNotRunningError",
     "PositionSource",
     "PysoemTransport",
+    "SimBackend",
     "SimTransport",
     "SlaveInfo",
     "SlaveNotFoundError",
@@ -112,6 +142,7 @@ __all__ = [
     "get_epos4_error",
     "is_known_epos4_error",
     "load_topology",
+    "open_simulated",
     "parse_topology",
     "transition_sequence",
 ]
