@@ -1,0 +1,26 @@
+# The lab 137 bench axis driven by a pysoem soft master instead of the CX.
+#
+# Pairs with lab-137.yaml for the A/B comparison: same drive, same scaling, same
+# axis name, different master. Move the EtherCAT cable from the CX to the Linux
+# node's dedicated NIC before using this.
+name: lab-137-pysoem
+backend: pysoem
+
+transport:
+  # Set to the dedicated EtherCAT NIC on the host that runs this; confirm with
+  # `ip link`. EtherCAT traffic must not cross a switch.
+  ifname: enp4s0
+
+defaults:
+  device: maxon_epos4
+  pdo_profile: profile_position
+  units:
+    name: deg
+    increments_per_unit: 2161.7778
+  limits:
+    velocity: 20.0
+
+axes:
+  - name: EPOS1
+    slave_index: 0
+    station_address: 1001

@@ -1,0 +1,30 @@
+# Single-axis EPOS4 bench (lab 137), driven through the CX2030 TwinCAT master.
+#
+# Addresses are bench-confirmed. master_net_id is the EtherCAT master device,
+# not the CX system NetId, and is what CoE-over-ADS object reads address.
+name: lab-137
+backend: twincat
+
+transport:
+  host: 172.16.10.60
+  ams_net_id: 5.57.12.96.1.1
+  master_net_id: 5.57.12.96.4.1
+  local_net_id: 172.16.10.61.1.1
+  ams_port: 851
+
+defaults:
+  device: maxon_epos4
+  pdo_profile: profile_position
+  units:
+    name: deg
+    # 1024 ppr x 4 quadrature x 190:1 gearbox = 778240 increments per output rev.
+    increments_per_unit: 2161.7778
+  limits:
+    # The drivetrain allows 300 deg/s; bring-up stays at the bench jog speed and
+    # raising this is a deliberate edit.
+    velocity: 20.0
+
+axes:
+  - name: EPOS1
+    plc_index: 1
+    station_address: 1001
