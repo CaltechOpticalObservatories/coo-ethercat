@@ -7,9 +7,11 @@ from pathlib import Path
 
 import pyads
 import pytest
-from fake_ads import FakeAdsConnection, FakeDrive
+from fake_ads import FakeAdsConnection, FakeDrive, FakeSystemService
 
-from cooethercat.axis import ALL_FIELDS, STATUS, AxisError, AxisSet, AxisState, CoeType
+from cooethercat.axis import (
+    ALL_FIELDS, STATUS, AxisError, AxisSet, AxisState, CoeType, ControllerState,
+)
 from cooethercat.backends import twincat
 from cooethercat.backends.twincat import SYMBOLS, open_twincat, symbol_name
 from cooethercat.config import load_topology
@@ -30,16 +32,26 @@ def drives_fixture() -> dict[int, FakeDrive]:
     return {}
 
 
+@pytest.fixture(name="system")
+def system_fixture() -> FakeSystemService:
+    return FakeSystemService()
+
+
 @pytest.fixture(name="axes")
 def axes_fixture(
-    plc: FakeAdsConnection, drives: dict[int, FakeDrive], monkeypatch: pytest.MonkeyPatch
+    plc: FakeAdsConnection,
+    drives: dict[int, FakeDrive],
+    system: FakeSystemService,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> Iterator[AxisSet]:
     monkeypatch.setattr(twincat, "TRIGGER_PULSE_S", 0.0)
 
     def open_drive(station: int) -> FakeDrive:
         return drives.setdefault(station, FakeDrive({BOARD_TEMPERATURE: 724 + station}))
 
-    with open_twincat(load_topology(CSU_DEMO), connection=plc, drives=open_drive) as axis_set:
+    with open_twincat(
+        load_topology(CSU_DEMO), connection=plc, drives=open_drive, system=system
+    ) as axis_set:
         yield axis_set
 
 
@@ -141,3 +153,21 @@ def test_coe_without_master_net_id_is_refused(plc: FakeAdsConnection) -> None:
 def test_every_csu_bar_has_a_station_address() -> None:
     topology = load_topology(CSU_DEMO)
     assert [axis.station_address for axis in topology.axes] == list(range(1001, 1024))
+
+
+@pytest.mark.parametrize(
+    ("ads_state", "expected"),
+    [(5, ControllerState.RUN), (15, ControllerState.CONFIG), (6, ControllerState.STOP),
+     (11, ControllerState.OTHER)],
+)
+def test_controller_state_follows_the_system_service(
+    axes: AxisSet, system: FakeSystemService, ads_state: int, expected: ControllerState
+) -> None:
+    system.state = ads_state
+    assert axes.backend.controller_state() is expected
+
+
+def test_system_connection_follows_the_axis_set(system: FakeSystemService) -> None:
+    with open_twincat(load_topology(CSU_DEMO), connection=FakeAdsConnection(23), system=system):
+        assert system.is_open
+    assert not system.is_open

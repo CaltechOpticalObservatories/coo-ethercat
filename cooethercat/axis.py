@@ -61,6 +61,15 @@ class CoeType(enum.Enum):
     UINT32 = "uint32"
 
 
+class ControllerState(enum.StrEnum):
+    """Run state of the motion controller behind a backend."""
+
+    RUN = "run"
+    STOP = "stop"
+    CONFIG = "config"
+    OTHER = "other"
+
+
 class FieldKind(enum.StrEnum):
     """Value type of an axis field, mirroring libby's typed keyword classes."""
 
@@ -204,6 +213,9 @@ class AxisBackend(Protocol):
 
     def read_object(self, axis: AxisConfig, index: int, subindex: int, kind: CoeType) -> int:
         """Read one CoE object from the axis's drive."""
+
+    def controller_state(self) -> ControllerState:
+        """Return whether the motion controller is running."""
 
 
 class Axis:

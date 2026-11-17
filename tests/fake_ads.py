@@ -106,3 +106,20 @@ class FakeDrive:
     def read(self, index_group: int, index_offset: int, plc_datatype: Any) -> Any:
         self.reads.append((index_group, index_offset, plc_datatype))
         return self.objects[(index_offset >> 16, index_offset & 0xFFFF)]
+
+
+class FakeSystemService:
+    """The TwinCAT system service, reporting the runtime's ADS state."""
+
+    def __init__(self, state: int = 5) -> None:
+        self.state = state
+        self.is_open = False
+
+    def open(self) -> None:
+        self.is_open = True
+
+    def close(self) -> None:
+        self.is_open = False
+
+    def read_state(self) -> tuple[int, int]:
+        return self.state, 0

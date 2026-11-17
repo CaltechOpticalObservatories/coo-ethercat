@@ -22,7 +22,7 @@ from typing import Any, Final, Protocol
 
 import pyads
 
-from ..axis import Axis, AxisSet, CoeType
+from ..axis import Axis, AxisSet, CoeType, ControllerState
 from ..config import AxisConfig, TopologyConfig, TwincatTransport
 
 SYMBOL_ROOT: Final = "GVL_Axes"
@@ -74,6 +74,15 @@ _COE_TYPES: Final[dict[CoeType, Any]] = {
 # CoE SDO access through the EtherCAT master: offset is (index << 16) | subindex
 COE_INDEX_GROUP: Final = 0xF302
 
+# The TwinCAT system service, whose ADS state is the runtime's Run/Config mode
+SYSTEM_PORT: Final = 10000
+_CONTROLLER_STATES: Final = {
+    pyads.ADSSTATE_RUN: ControllerState.RUN,
+    pyads.ADSSTATE_STOP: ControllerState.STOP,
+    pyads.ADSSTATE_CONFIG: ControllerState.CONFIG,
+    pyads.ADSSTATE_RECONFIG: ControllerState.CONFIG,
+}
+
 _SETTABLE: Final = frozenset({"enable", "mode", "target", "velocity", "acceleration", "deceleration"})
 _TRIGGERS: Final = frozenset({"move", "stop", "reset", "home"})
 
@@ -113,6 +122,19 @@ class AdsDevice(Protocol):
 DeviceFactory = Callable[[int], AdsDevice]
 
 
+class AdsStateReader(Protocol):
+    """The slice of ``pyads.Connection`` used to read a service's ADS state."""
+
+    def open(self) -> None:
+        """Open the ADS port."""
+
+    def close(self) -> None:
+        """Close the ADS port."""
+
+    def read_state(self) -> tuple[int, int] | None:
+        """Return the ADS state and device state."""
+
+
 def symbol_name(axis: AxisConfig, field: str) -> str:
     """Return the PLC symbol carrying one field of one axis."""
     if axis.plc_index is None:
@@ -128,8 +150,10 @@ class TwincatBackend:
         connection: AdsConnection,
         drives: DeviceFactory | None = None,
         register_routes: Callable[[], None] | None = None,
+        system: AdsStateReader | None = None,
     ) -> None:
         self._plc = connection
+        self._system = system
         self._drive_factory = drives
         self._register_routes = register_routes
         self._drives: dict[int, AdsDevice] = {}
@@ -141,6 +165,8 @@ class TwincatBackend:
             if self._register_routes is not None:
                 self._register_routes()
             self._plc.open()
+            if self._system is not None:
+                self._system.open()
 
     def close(self) -> None:
         with self._lock:
@@ -148,6 +174,15 @@ class TwincatBackend:
                 drive.close()
             self._drives.clear()
             self._plc.close()
+            if self._system is not None:
+                self._system.close()
+
+    def controller_state(self) -> ControllerState:
+        if self._system is None:
+            raise KeyError("this backend has no TwinCAT system connection")
+        with self._lock:
+            state = self._system.read_state()
+        return _CONTROLLER_STATES.get(state[0], ControllerState.OTHER) if state else ControllerState.OTHER
 
     def read_object(self, axis: AxisConfig, index: int, subindex: int, kind: CoeType) -> int:
         """Read one CoE object from the axis's drive."""
@@ -218,6 +253,11 @@ def route_registrar(transport: TwincatTransport) -> Callable[[], None] | None:
     return register
 
 
+def system_connection(transport: TwincatTransport) -> pyads.Connection:
+    """Build an ADS connection to the TwinCAT system service on the PLC."""
+    return pyads.Connection(transport.ams_net_id, SYSTEM_PORT, transport.host)
+
+
 def drive_factory(transport: TwincatTransport) -> DeviceFactory | None:
     """Return a builder of per-drive CoE connections, or None without a master net id."""
     master = transport.master_net_id
@@ -230,6 +270,7 @@ def open_twincat(
     topology: TopologyConfig,
     connection: AdsConnection | None = None,
     drives: DeviceFactory | None = None,
+    system: AdsStateReader | None = None,
 ) -> AxisSet:
     """Build a started AxisSet driving the PLC described by ``topology``."""
     if not isinstance(topology.transport, TwincatTransport):
@@ -237,10 +278,11 @@ def open_twincat(
     transport = topology.transport
     if connection is None:
         backend = TwincatBackend(
-            connect_ads(transport), drives or drive_factory(transport), route_registrar(transport)
+            connect_ads(transport), drives or drive_factory(transport), route_registrar(transport),
+            system or system_connection(transport),
         )
     else:
-        backend = TwincatBackend(connection, drives or drive_factory(transport))
+        backend = TwincatBackend(connection, drives or drive_factory(transport), system=system)
     axes = {config.keyword_name: Axis(backend, config) for config in topology.axes}
     backend.open()
     return AxisSet(backend, axes)

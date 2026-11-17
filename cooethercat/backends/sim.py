@@ -17,7 +17,7 @@ import time
 from collections.abc import Sequence
 from typing import Any, Final
 
-from ..axis import Axis, AxisSet, AxisState, CoeType, MoveMode
+from ..axis import Axis, AxisSet, AxisState, CoeType, ControllerState, MoveMode
 from ..config import AxisConfig, SimTransport, TopologyConfig
 
 _DEFAULT_TICK_S: Final = 0.01
@@ -206,6 +206,9 @@ class SimBackend:
                     simulated.home()
                 case _:
                     raise KeyError(f"{axis.name}: {field!r} is not an action")
+
+    def controller_state(self) -> ControllerState:
+        return ControllerState.RUN
 
     def read_object(self, axis: AxisConfig, index: int, subindex: int, kind: CoeType) -> int:
         """Return a value set with ``set_object``, or 0 for an object never set."""
