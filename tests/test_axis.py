@@ -15,6 +15,7 @@ from cooethercat.axis import (
     AxisError,
     AxisSet,
     AxisState,
+    CoeType,
     Dimension,
     FieldKind,
     MoveMode,
@@ -256,3 +257,11 @@ def test_move_mode_is_recorded_for_the_backend(axis: Axis) -> None:
     axis.move_relative(3.0, velocity=20.0)
 
     assert axis.get("mode") == int(MoveMode.RELATIVE)
+
+
+def test_sim_returns_objects_set_on_it(topology: TopologyConfig) -> None:
+    backend = SimBackend(topology)
+    axis = Axis(backend, topology.axis("CSU-1"))
+    assert axis.read_object(0x3201, 1, CoeType.INT16) == 0
+    backend.set_object("CSU-1", 0x3201, 1, 731)
+    assert axis.read_object(0x3201, 1, CoeType.INT16) == 731

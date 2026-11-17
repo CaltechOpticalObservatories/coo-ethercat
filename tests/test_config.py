@@ -76,7 +76,7 @@ def test_lab_137_pysoem_pairs_with_the_twincat_config() -> None:
 def test_csu_demo_axis_slots_follow_the_documented_offset() -> None:
     topology = load_topology(CONFIG_DIR / "csu-demo.yaml")
 
-    assert len(topology.axes) == 12
+    assert len(topology.axes) == 23
     for number, axis in enumerate(topology.axes):
         assert axis.name == f"CSU-{number}"
         assert axis.plc_index == number + 1
@@ -89,8 +89,7 @@ def test_csu_demo_has_units_without_encoder_scaling() -> None:
     assert axis.units.increments_per_unit is None
     with pytest.raises(ConfigError, match="increments_per_unit"):
         axis.units.require_scaling()
-    with pytest.raises(ConfigError, match="station_address"):
-        axis.require_station_address()
+    assert axis.require_station_address() == 1001
 
 
 def test_axis_lookup_is_case_insensitive_and_reports_known_names() -> None:

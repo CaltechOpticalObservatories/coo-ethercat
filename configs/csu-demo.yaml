@@ -1,13 +1,9 @@
 # CSU demo bench: EPOS4 drives on CX-LAB01, commanded through the PLC motion
 # server.
 #
-# plc_index is the GVL_Axes.Axis[] slot, where CSU-N sits at slot N+1. The NC
-# axis number behind each slot (13 upward, offset by orphans from an earlier
-# scan) is an XAE-side link that never appears here.
-#
-# Twelve of the twenty-four drives are cabled and scanned; append the rest as
-# they are wired. Station addresses are unconfirmed on this bench, so CoE
-# object reads stay unavailable until they are filled in.
+# plc_index is the GVL_Axes.Axis[] slot. Slot N is linked to NC axis N, which
+# drives EPOS4 drive N, so CSU-N sits at slot N+1. Drive N answers CoE at
+# station address 1000+N through the EtherCAT master's net id.
 name: csu-demo
 backend: twincat
 
@@ -16,6 +12,7 @@ transport:
   ams_net_id: 5.57.12.96.1.1
   local_net_id: 192.168.30.220.1.1
   ams_port: 851
+  master_net_id: 5.57.12.96.4.1
 
 defaults:
   device: maxon_epos4
@@ -26,15 +23,26 @@ defaults:
     velocity: 5.0
 
 axes:
-  - {name: CSU-0, plc_index: 1}
-  - {name: CSU-1, plc_index: 2}
-  - {name: CSU-2, plc_index: 3}
-  - {name: CSU-3, plc_index: 4}
-  - {name: CSU-4, plc_index: 5}
-  - {name: CSU-5, plc_index: 6}
-  - {name: CSU-6, plc_index: 7}
-  - {name: CSU-7, plc_index: 8}
-  - {name: CSU-8, plc_index: 9}
-  - {name: CSU-9, plc_index: 10}
-  - {name: CSU-10, plc_index: 11}
-  - {name: CSU-11, plc_index: 12}
+  - {name: CSU-0, plc_index: 1, station_address: 1001}
+  - {name: CSU-1, plc_index: 2, station_address: 1002}
+  - {name: CSU-2, plc_index: 3, station_address: 1003}
+  - {name: CSU-3, plc_index: 4, station_address: 1004}
+  - {name: CSU-4, plc_index: 5, station_address: 1005}
+  - {name: CSU-5, plc_index: 6, station_address: 1006}
+  - {name: CSU-6, plc_index: 7, station_address: 1007}
+  - {name: CSU-7, plc_index: 8, station_address: 1008}
+  - {name: CSU-8, plc_index: 9, station_address: 1009}
+  - {name: CSU-9, plc_index: 10, station_address: 1010}
+  - {name: CSU-10, plc_index: 11, station_address: 1011}
+  - {name: CSU-11, plc_index: 12, station_address: 1012}
+  - {name: CSU-12, plc_index: 13, station_address: 1013}
+  - {name: CSU-13, plc_index: 14, station_address: 1014}
+  - {name: CSU-14, plc_index: 15, station_address: 1015}
+  - {name: CSU-15, plc_index: 16, station_address: 1016}
+  - {name: CSU-16, plc_index: 17, station_address: 1017}
+  - {name: CSU-17, plc_index: 18, station_address: 1018}
+  - {name: CSU-18, plc_index: 19, station_address: 1019}
+  - {name: CSU-19, plc_index: 20, station_address: 1020}
+  - {name: CSU-20, plc_index: 21, station_address: 1021}
+  - {name: CSU-21, plc_index: 22, station_address: 1022}
+  - {name: CSU-22, plc_index: 23, station_address: 1023}
