@@ -43,7 +43,7 @@ twincat = ["pyads"]
 dev = ["pytest", "types-PyYAML", "pyads"]
 
 [tool.setuptools]
-packages = ["cooethercat"]
+packages = ["cooethercat", "cooethercat.backends"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
