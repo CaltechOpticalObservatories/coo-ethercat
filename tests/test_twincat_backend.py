@@ -171,3 +171,16 @@ def test_system_connection_follows_the_axis_set(system: FakeSystemService) -> No
     with open_twincat(load_topology(CSU_DEMO), connection=FakeAdsConnection(23), system=system):
         assert system.is_open
     assert not system.is_open
+
+
+def test_routes_are_all_dropped_before_any_is_added(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[str, str]] = []
+    monkeypatch.setattr(pyads, "delete_route", lambda addr: calls.append(("delete", addr.netid)))
+    monkeypatch.setattr(pyads, "add_route", lambda net_id, host: calls.append(("add", net_id)))
+    transport = load_topology(CSU_DEMO).transport
+    assert isinstance(transport, twincat.TwincatTransport)
+    register = twincat.route_registrar(transport)
+    assert register is not None
+    register()
+    assert calls == [("delete", "5.57.12.96.1.1"), ("delete", "5.57.12.96.4.1"),
+                     ("add", "5.57.12.96.1.1"), ("add", "5.57.12.96.4.1")]

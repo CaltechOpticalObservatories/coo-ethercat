@@ -238,8 +238,9 @@ def connect_ads(transport: TwincatTransport) -> pyads.Connection:
 def route_registrar(transport: TwincatTransport) -> Callable[[], None] | None:
     """Return a callable that (re)creates the local ADS routes, or None where none are needed.
 
-    pyads' Linux router keeps one TCP connection per route and reuses it after the peer
-    drops it, so reopening only recovers once the route is deleted and added again.
+    pyads' Linux router keeps one TCP connection per IP, shared by every route to it, and
+    reuses it after the peer drops it. Only once no route is left is the socket closed, so
+    every route is deleted before any is added back.
     """
     if transport.local_net_id is None or not hasattr(pyads, "add_route"):
         return None
@@ -248,6 +249,7 @@ def route_registrar(transport: TwincatTransport) -> Callable[[], None] | None:
     def register() -> None:
         for net_id in net_ids:
             pyads.delete_route(pyads.AmsAddr(net_id, 0))
+        for net_id in net_ids:
             pyads.add_route(net_id, transport.host)
 
     return register
