@@ -173,7 +173,7 @@ def test_system_connection_follows_the_axis_set(system: FakeSystemService) -> No
     assert not system.is_open
 
 
-def test_routes_are_all_dropped_before_any_is_added(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_route_order_frees_the_shared_socket(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[tuple[str, str]] = []
     monkeypatch.setattr(pyads, "delete_route", lambda addr: calls.append(("delete", addr.netid)))
     monkeypatch.setattr(pyads, "add_route", lambda net_id, host: calls.append(("add", net_id)))
@@ -182,5 +182,6 @@ def test_routes_are_all_dropped_before_any_is_added(monkeypatch: pytest.MonkeyPa
     register = twincat.route_registrar(transport)
     assert register is not None
     register()
-    assert calls == [("delete", "5.57.12.96.1.1"), ("delete", "5.57.12.96.4.1"),
-                     ("add", "5.57.12.96.1.1"), ("add", "5.57.12.96.4.1")]
+    plc, master = "5.57.12.96.1.1", "5.57.12.96.4.1"
+    assert calls == [("delete", plc), ("delete", plc), ("add", master), ("delete", master),
+                     ("add", plc), ("add", master)]
