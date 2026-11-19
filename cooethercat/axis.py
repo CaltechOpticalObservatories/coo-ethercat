@@ -50,6 +50,26 @@ class MoveMode(enum.IntEnum):
     VELOCITY = 2
 
 
+class CoeType(enum.Enum):
+    """Width and signedness of a CoE object; an oversized read turns negatives positive."""
+
+    INT8 = "int8"
+    UINT8 = "uint8"
+    INT16 = "int16"
+    UINT16 = "uint16"
+    INT32 = "int32"
+    UINT32 = "uint32"
+
+
+class ControllerState(enum.StrEnum):
+    """Run state of the motion controller behind a backend."""
+
+    RUN = "run"
+    STOP = "stop"
+    CONFIG = "config"
+    OTHER = "other"
+
+
 class FieldKind(enum.StrEnum):
     """Value type of an axis field, mirroring libby's typed keyword classes."""
 
@@ -191,6 +211,12 @@ class AxisBackend(Protocol):
     def fire_trigger(self, axis: AxisConfig, field: str) -> None:
         """Perform one action, handling whatever edge the master needs."""
 
+    def read_object(self, axis: AxisConfig, index: int, subindex: int, kind: CoeType) -> int:
+        """Read one CoE object from the axis's drive."""
+
+    def controller_state(self) -> ControllerState:
+        """Return whether the motion controller is running."""
+
 
 class Axis:
     """One commandable axis, in engineering units, over any backend."""
@@ -258,6 +284,10 @@ class Axis:
     @property
     def error_id(self) -> int:
         return int(self.get("error_id"))
+
+    def read_object(self, index: int, subindex: int, kind: CoeType) -> int:
+        """Read one CoE object from this axis's drive."""
+        return self.backend.read_object(self.config, index, subindex, kind)
 
     def status(self) -> dict[str, Any]:
         """Return every readback as one coherent snapshot."""

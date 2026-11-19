@@ -31,7 +31,7 @@ master, and the axes it carries. Shipped examples:
 |---|---|
 | `configs/lab-137.yaml` | single EPOS4 through the CX2030 TwinCAT master |
 | `configs/lab-137-pysoem.yaml` | the same drive under a pysoem soft master |
-| `configs/csu-demo.yaml` | the twelve cabled CSU axes on CX-LAB01 |
+| `configs/csu-demo.yaml` | the 23 CSU axes on CX-LAB01 |
 
 ```yaml
 name: csu-demo
@@ -88,8 +88,13 @@ Configured travel and velocity limits are enforced before a move is commanded.
 call `wait()` later.
 
 The field tables in `cooethercat/axis.py` are the interface contract, and the
-libby keyword names derive from them. `sim` is the backend available today;
-`pysoem` and `twincat` are in progress.
+libby keyword names derive from them. `sim` and `twincat` are available;
+`pysoem` is in progress.
+
+The `twincat` backend talks ADS to the PLC motion server (`GVL_Axes.Axis[N]`) and
+needs the `twincat` extra (`pip install cooethercat[twincat]`). `Axis.read_object`
+reads an EPOS4 CoE object through the EtherCAT master, for drive telemetry such as
+board temperature.
 
 ## Soft-master stack
 
@@ -145,7 +150,7 @@ disciplined distributed clock and are not supported here.
 pytest
 ```
 
-The suite runs against the simulator and needs no hardware.
+The suite runs against the simulator and a fake ADS connection, and needs no hardware.
 
 ## Notes
 

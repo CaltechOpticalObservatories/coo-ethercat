@@ -17,7 +17,7 @@ import time
 from collections.abc import Sequence
 from typing import Any, Final
 
-from ..axis import Axis, AxisSet, AxisState, MoveMode
+from ..axis import Axis, AxisSet, AxisState, CoeType, ControllerState, MoveMode
 from ..config import AxisConfig, SimTransport, TopologyConfig
 
 _DEFAULT_TICK_S: Final = 0.01
@@ -149,6 +149,7 @@ class SimBackend:
         transport = topology.transport
         self.tick_s = transport.tick_s if isinstance(transport, SimTransport) else _DEFAULT_TICK_S
         self._axes = {config.keyword_name: _SimAxis(config) for config in topology.axes}
+        self._objects: dict[tuple[str, int, int], int] = {}
         self._lock = threading.RLock()
         self._shutdown = threading.Event()
         self._thread: threading.Thread | None = None
@@ -205,6 +206,20 @@ class SimBackend:
                     simulated.home()
                 case _:
                     raise KeyError(f"{axis.name}: {field!r} is not an action")
+
+    def controller_state(self) -> ControllerState:
+        return ControllerState.RUN
+
+    def read_object(self, axis: AxisConfig, index: int, subindex: int, kind: CoeType) -> int:
+        """Return a value set with ``set_object``, or 0 for an object never set."""
+        with self._lock:
+            self._locate(axis)
+            return self._objects.get((axis.keyword_name, index, subindex), 0)
+
+    def set_object(self, axis_name: str, index: int, subindex: int, value: int) -> None:
+        """Give a simulated drive object a value, e.g. a board temperature."""
+        with self._lock:
+            self._objects[(axis_name.lower(), index, subindex)] = value
 
     def inject_fault(self, axis_name: str, error_id: int = 1) -> None:
         """Latch a fault on one axis so callers can exercise recovery paths."""

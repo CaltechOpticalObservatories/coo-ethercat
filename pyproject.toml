@@ -39,10 +39,11 @@ Repository = "https://github.com/CaltechOpticalObservatories/coo-ethercat"
 
 [project.optional-dependencies]
 gui = ["PyQt5"]
-dev = ["pytest", "types-PyYAML"]
+twincat = ["pyads"]
+dev = ["pytest", "types-PyYAML", "pyads"]
 
 [tool.setuptools]
-packages = ["cooethercat"]
+packages = ["cooethercat", "cooethercat.backends"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
