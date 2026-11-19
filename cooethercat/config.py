@@ -136,6 +136,12 @@ class AxisConfig:
         """Return the lowercase name used to build libby keywords."""
         return self.name.lower()
 
+    def require_slave_index(self) -> int:
+        """Return the pysoem enumeration index, raising if the config omits it."""
+        if self.slave_index is None:
+            raise ConfigError(f"axis {self.name!r} has no slave_index")
+        return self.slave_index
+
     def require_station_address(self) -> int:
         """Return the station address, raising if CoE object access cannot work."""
         if self.station_address is None:
