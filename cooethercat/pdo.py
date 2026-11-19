@@ -13,9 +13,10 @@ import struct
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Any, Callable, Iterable, Mapping, MutableMapping, Optional, Protocol, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Mapping, MutableMapping, Optional, Protocol, Sequence
 
-from .bus import EtherCATBus
+if TYPE_CHECKING:
+    from .bus import EtherCATBus
 
 LOG = logging.getLogger(__name__)
 

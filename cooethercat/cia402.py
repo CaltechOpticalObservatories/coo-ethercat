@@ -16,9 +16,10 @@ import time
 from collections import deque
 from dataclasses import dataclass
 from enum import IntEnum
-from typing import Any, Iterable, Sequence
+from typing import TYPE_CHECKING, Any, Iterable, Sequence
 
-from .bus import EtherCATBus
+if TYPE_CHECKING:
+    from .bus import EtherCATBus
 
 LOG = logging.getLogger(__name__)
 
