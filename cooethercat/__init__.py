@@ -18,6 +18,7 @@ from .axis import (
     MoveMode,
 )
 from .backends.sim import SimBackend, open_simulated
+from .backends.soem import SoemBackend, open_soem
 from .bus import (
     BusNotOpenError,
     EtherCATBus,
@@ -137,6 +138,7 @@ __all__ = [
     "SimTransport",
     "SlaveInfo",
     "SlaveNotFoundError",
+    "SoemBackend",
     "StateTransitionError",
     "Statusword",
     "StatuswordBit",
@@ -147,6 +149,7 @@ __all__ = [
     "is_known_epos4_error",
     "load_topology",
     "open_simulated",
+    "open_soem",
     "parse_topology",
     "transition_sequence",
 ]

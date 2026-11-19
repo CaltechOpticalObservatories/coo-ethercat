@@ -88,13 +88,22 @@ Configured travel and velocity limits are enforced before a move is commanded.
 call `wait()` later.
 
 The field tables in `cooethercat/axis.py` are the interface contract, and the
-libby keyword names derive from them. `sim` and `twincat` are available;
-`pysoem` is in progress.
+libby keyword names derive from them. `sim`, `twincat` and `pysoem` are
+available, and a script runs unchanged on any of them.
 
 The `twincat` backend talks ADS to the PLC motion server (`GVL_Axes.Axis[N]`) and
-needs the `twincat` extra (`pip install cooethercat[twincat]`). `Axis.read_object`
-reads an EPOS4 CoE object through the EtherCAT master, for drive telemetry such as
-board temperature.
+needs the `twincat` extra (`pip install cooethercat[twincat]`). The `pysoem`
+backend makes Python the EtherCAT master on a dedicated NIC, driving each
+`MaxonEPOS4` through the soft-master stack below; it needs raw socket access
+(`CAP_NET_RAW`). On both, `Axis.read_object` reads an EPOS4 CoE object, for drive
+telemetry such as board temperature.
+
+```python
+from cooethercat import load_topology, open_soem
+
+with open_soem(load_topology("configs/lab-137-pysoem.yaml")) as axes:
+    axes.axis("EPOS1").enable()
+```
 
 ## Soft-master stack
 
@@ -150,7 +159,8 @@ disciplined distributed clock and are not supported here.
 pytest
 ```
 
-The suite runs against the simulator and a fake ADS connection, and needs no hardware.
+The suite runs against the simulator, a fake ADS connection and a fake pysoem
+master, and needs no hardware.
 
 ## Notes
 
