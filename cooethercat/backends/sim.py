@@ -179,6 +179,13 @@ class SimBackend:
             simulated = self._locate(axis)
             return {field: self._read(simulated, field) for field in fields}
 
+    def read_axes_fields(
+        self, axes: Sequence[AxisConfig], fields: Sequence[str]
+    ) -> dict[str, dict[str, Any]]:
+        """Read the fields of every axis under one lock."""
+        with self._lock:
+            return {axis.name: self.read_fields(axis, fields) for axis in axes}
+
     @staticmethod
     def _read(simulated: _SimAxis, field: str) -> Any:
         if field in simulated.status:

@@ -21,7 +21,7 @@ CSU_DEMO = Path(__file__).parent.parent / "configs" / "csu-demo.yaml"
 
 @pytest.fixture(name="plc")
 def plc_fixture() -> FakeAdsConnection:
-    return FakeAdsConnection(axis_count=12)
+    return FakeAdsConnection(axis_count=23)
 
 
 BOARD_TEMPERATURE = (0x3201, 1)
@@ -74,6 +74,13 @@ def test_open_and_close_follow_the_axis_set(plc: FakeAdsConnection) -> None:
 def test_status_is_one_sum_read(axes: AxisSet, plc: FakeAdsConnection) -> None:
     status = axes.axis("CSU-3").status()
     assert set(status) == set(STATUS)
+    assert plc.sum_reads == 1
+
+
+def test_every_axis_is_one_sum_read(axes: AxisSet, plc: FakeAdsConnection) -> None:
+    snapshot = axes.read(("position", "velocity"))
+    assert set(snapshot) == set(axes.names)
+    assert all(set(fields) == {"position", "velocity"} for fields in snapshot.values())
     assert plc.sum_reads == 1
 
 

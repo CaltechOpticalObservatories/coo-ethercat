@@ -205,6 +205,11 @@ class AxisBackend(Protocol):
         24-axis topology is the difference between one request and hundreds.
         """
 
+    def read_axes_fields(
+        self, axes: Sequence[AxisConfig], fields: Sequence[str]
+    ) -> dict[str, dict[str, Any]]:
+        """Return the same fields for several axes as one snapshot, keyed by axis name."""
+
     def write_field(self, axis: AxisConfig, field: str, value: Any) -> None:
         """Set one settable field, in engineering units."""
 
@@ -444,6 +449,10 @@ class AxisSet:
 
     def __iter__(self) -> Iterator[Axis]:
         return iter(self._axes.values())
+
+    def read(self, fields: Sequence[str] = tuple(STATUS)) -> dict[str, dict[str, Any]]:
+        """Return the fields of every axis as one snapshot, keyed by axis name."""
+        return self.backend.read_axes_fields([axis.config for axis in self], fields)
 
     @property
     def names(self) -> tuple[str, ...]:

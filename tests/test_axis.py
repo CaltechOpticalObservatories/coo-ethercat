@@ -86,6 +86,12 @@ def test_status_is_read_as_one_snapshot(axis: Axis, axes: AxisSet) -> None:
     assert calls == [len(STATUS)]
 
 
+def test_axis_set_read_matches_each_axis_status(axes: AxisSet) -> None:
+    snapshot = axes.read()
+    assert set(snapshot) == set(axes.names)
+    assert all(set(fields) == set(STATUS) for fields in snapshot.values())
+
+
 def test_unit_labels_come_from_the_axis_not_the_table() -> None:
     position = ALL_FIELDS["position"]
     velocity = ALL_FIELDS["velocity"]

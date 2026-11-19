@@ -85,7 +85,7 @@ with open_simulated(topology) as axes:
 Configured travel and velocity limits are enforced before a move is commanded.
 `move_absolute` and `move_relative` block until the move completes and raise
 `AxisError` on a fault or a timeout; pass `wait=False` to return immediately and
-call `wait()` later.
+call `wait()` later. `axes.read()` returns every axis's status in one request.
 
 The field tables in `cooethercat/axis.py` are the interface contract, and the
 libby keyword names derive from them. `sim` and `twincat` are available;

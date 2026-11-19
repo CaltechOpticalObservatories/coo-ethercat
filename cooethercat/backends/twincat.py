@@ -207,6 +207,19 @@ class TwincatBackend:
             values = self._plc.read_list_by_name(list(names))
         return {names[name]: value for name, value in values.items()}
 
+    def read_axes_fields(
+        self, axes: Sequence[AxisConfig], fields: Sequence[str]
+    ) -> dict[str, dict[str, Any]]:
+        """Read the fields of every axis in one sum request."""
+        names = {symbol_name(axis, field): (axis.name, field) for axis in axes for field in fields}
+        with self._lock:
+            values = self._plc.read_list_by_name(list(names))
+        snapshot: dict[str, dict[str, Any]] = {axis.name: {} for axis in axes}
+        for name, value in values.items():
+            axis_name, field = names[name]
+            snapshot[axis_name][field] = value
+        return snapshot
+
     def write_field(self, axis: AxisConfig, field: str, value: Any) -> None:
         if field not in _SETTABLE:
             raise KeyError(f"{axis.name}: {field!r} is not a settable field")
