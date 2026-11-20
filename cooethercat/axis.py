@@ -23,6 +23,7 @@ from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from typing import Any, Final, Protocol, Self
 
+from .cache import read_cache
 from .config import AxisConfig
 
 
@@ -205,6 +206,11 @@ class AxisBackend(Protocol):
         24-axis topology is the difference between one request and hundreds.
         """
 
+    def read_axes_fields(
+        self, axes: Sequence[AxisConfig], fields: Sequence[str]
+    ) -> dict[str, dict[str, Any]]:
+        """Return the same fields for several axes as one snapshot, keyed by axis name."""
+
     def write_field(self, axis: AxisConfig, field: str, value: Any) -> None:
         """Set one settable field, in engineering units."""
 
@@ -224,6 +230,7 @@ class Axis:
     def __init__(self, backend: AxisBackend, config: AxisConfig) -> None:
         self.backend = backend
         self.config = config
+        self.cache = read_cache(backend)
 
     def __repr__(self) -> str:
         return f"Axis(name={self.name!r}, units={self.config.units.name!r})"
@@ -245,7 +252,10 @@ class Axis:
         if field not in SETTINGS:
             self._spec(field)
             raise AxisError(f"{self.name}: {field!r} is not settable")
-        self.backend.write_field(self.config, field, value)
+        try:
+            self.backend.write_field(self.config, field, value)
+        finally:
+            self.cache.clear()
 
     def _spec(self, field: str) -> AxisField:
         try:
@@ -285,9 +295,11 @@ class Axis:
     def error_id(self) -> int:
         return int(self.get("error_id"))
 
-    def read_object(self, index: int, subindex: int, kind: CoeType) -> int:
-        """Read one CoE object from this axis's drive."""
-        return self.backend.read_object(self.config, index, subindex, kind)
+    def read_object(self, index: int, subindex: int, kind: CoeType, *, max_age: float = 0.0) -> int:
+        """Read one CoE object from this axis's drive, accepting a value up to max_age s old."""
+        return self.cache.get(("object", self.name, index, subindex, kind),
+                              lambda: self.backend.read_object(self.config, index, subindex, kind),
+                              max_age)
 
     def status(self) -> dict[str, Any]:
         """Return every readback as one coherent snapshot."""
@@ -305,19 +317,25 @@ class Axis:
 
     def move(self) -> None:
         """Start the move described by the current target, velocity and mode."""
-        self.backend.fire_trigger(self.config, "move")
+        self._fire("move")
 
     def stop(self) -> None:
         """Decelerate to standstill."""
-        self.backend.fire_trigger(self.config, "stop")
+        self._fire("stop")
 
     def reset(self) -> None:
         """Clear a latched fault."""
-        self.backend.fire_trigger(self.config, "reset")
+        self._fire("reset")
 
     def home(self) -> None:
         """Run the homing sequence."""
-        self.backend.fire_trigger(self.config, "home")
+        self._fire("home")
+
+    def _fire(self, field: str) -> None:
+        try:
+            self.backend.fire_trigger(self.config, field)
+        finally:
+            self.cache.clear()
 
     def move_absolute(
         self,
@@ -433,17 +451,33 @@ class AxisSet:
         self._axes = axes
 
     def __enter__(self) -> Self:
+        read_cache(self.backend).clear()
         self.backend.open()
         return self
 
     def __exit__(self, *exc: object) -> None:
         self.backend.close()
+        read_cache(self.backend).clear()
 
     def __len__(self) -> int:
         return len(self._axes)
 
     def __iter__(self) -> Iterator[Axis]:
         return iter(self._axes.values())
+
+    def read(
+        self, fields: Sequence[str] = tuple(STATUS), *, max_age: float = 0.0
+    ) -> dict[str, dict[str, Any]]:
+        """Return the fields of every axis as one snapshot, keyed by axis name.
+
+        A snapshot up to max_age seconds old is returned instead of reading.
+        """
+        configs = [axis.config for axis in self]
+        return read_cache(self.backend).get(
+            ("axes", self.names, tuple(fields)),
+            lambda: self.backend.read_axes_fields(configs, fields),
+            max_age,
+        )
 
     @property
     def names(self) -> tuple[str, ...]:
