@@ -142,7 +142,7 @@ def symbol_name(axis: AxisConfig, field: str) -> str:
     return f"{SYMBOL_ROOT}.Axis[{axis.plc_index}].{SYMBOLS[field].member}"
 
 
-class TwincatBackend:
+class TwincatBackend:  # pylint: disable=too-many-instance-attributes
     """Axis backend speaking to a TwinCAT PLC motion server over ADS."""
 
     def __init__(
@@ -156,12 +156,15 @@ class TwincatBackend:
         self._system = system
         self._drive_factory = drives
         self._register_routes = register_routes
-        self._drives: dict[int, AdsDevice] = {}
-        # One ADS port fails intermittently under concurrent requests from several threads
-        self._lock = threading.Lock()
+        self._drives: dict[int, tuple[AdsDevice, threading.Lock]] = {}
+        # One ADS port fails intermittently under concurrent requests from several threads,
+        # and every connection owns its port, so each connection gets its own lock
+        self._plc_lock = threading.Lock()
+        self._system_lock = threading.Lock()
+        self._drives_lock = threading.Lock()
 
     def open(self) -> None:
-        with self._lock:
+        with self._plc_lock, self._system_lock:
             if self._register_routes is not None:
                 self._register_routes()
             self._plc.open()
@@ -169,10 +172,12 @@ class TwincatBackend:
                 self._system.open()
 
     def close(self) -> None:
-        with self._lock:
-            for drive in self._drives.values():
-                drive.close()
+        with self._drives_lock:
+            for drive, drive_lock in self._drives.values():
+                with drive_lock:
+                    drive.close()
             self._drives.clear()
+        with self._plc_lock, self._system_lock:
             self._plc.close()
             if self._system is not None:
                 self._system.close()
@@ -180,7 +185,7 @@ class TwincatBackend:
     def controller_state(self) -> ControllerState:
         if self._system is None:
             raise KeyError("this backend has no TwinCAT system connection")
-        with self._lock:
+        with self._system_lock:
             state = self._system.read_state()
         return _CONTROLLER_STATES.get(state[0], ControllerState.OTHER) if state else ControllerState.OTHER
 
@@ -189,21 +194,23 @@ class TwincatBackend:
         if self._drive_factory is None:
             raise KeyError("this topology has no master_net_id, so CoE objects are unreachable")
         station = axis.require_station_address()
-        with self._lock:
-            drive = self._drives.get(station)
-            if drive is None:
+        with self._drives_lock:
+            entry = self._drives.get(station)
+            if entry is None:
                 drive = self._drive_factory(station)
                 drive.open()
-                self._drives[station] = drive
+                entry = self._drives[station] = (drive, threading.Lock())
+        drive, drive_lock = entry
+        with drive_lock:
             return int(drive.read(COE_INDEX_GROUP, (index << 16) | subindex, _COE_TYPES[kind]))
 
     def read_field(self, axis: AxisConfig, field: str) -> Any:
-        with self._lock:
+        with self._plc_lock:
             return self._plc.read_by_name(symbol_name(axis, field), SYMBOLS[field].plc_type)
 
     def read_fields(self, axis: AxisConfig, fields: Sequence[str]) -> dict[str, Any]:
         names = {symbol_name(axis, field): field for field in fields}
-        with self._lock:
+        with self._plc_lock:
             values = self._plc.read_list_by_name(list(names))
         return {names[name]: value for name, value in values.items()}
 
@@ -212,7 +219,7 @@ class TwincatBackend:
     ) -> dict[str, dict[str, Any]]:
         """Read the fields of every axis in one sum request."""
         names = {symbol_name(axis, field): (axis.name, field) for axis in axes for field in fields}
-        with self._lock:
+        with self._plc_lock:
             values = self._plc.read_list_by_name(list(names))
         snapshot: dict[str, dict[str, Any]] = {axis.name: {} for axis in axes}
         for name, value in values.items():
@@ -236,7 +243,7 @@ class TwincatBackend:
             self._write(name, False, plc_type)
 
     def _write(self, name: str, value: Any, plc_type: Any) -> None:
-        with self._lock:
+        with self._plc_lock:
             self._plc.write_by_name(name, value, plc_type)
 
 

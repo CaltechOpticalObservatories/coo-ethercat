@@ -87,6 +87,13 @@ Configured travel and velocity limits are enforced before a move is commanded.
 `AxisError` on a fault or a timeout; pass `wait=False` to return immediately and
 call `wait()` later. `axes.read()` returns every axis's status in one request.
 
+`axes.read(fields, max_age=0.5)` and `axis.read_object(..., max_age=0.5)` accept a
+value up to that many seconds old instead of reading again, so a dump of many
+keywords reads the hardware once. The default of 0 always reads, and any write
+through the axis API clears the cache. On TwinCAT each ADS connection (PLC,
+system service, each drive) has its own lock, so a slow drive delays only its
+own reads.
+
 The field tables in `cooethercat/axis.py` are the interface contract, and the
 libby keyword names derive from them. `sim` and `twincat` are available;
 `pysoem` is in progress.
